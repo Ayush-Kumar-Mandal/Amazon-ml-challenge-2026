@@ -56,7 +56,7 @@
   - [x] T5 folds + dev slice
 - M1:
   - [x] T6 name text
-  - [ ] T7 address
+  - [x] T7 address
   - [ ] T8 lexicon
   - [ ] T9 normalize stage
   - [ ] T10 keys
@@ -117,6 +117,7 @@
 - Deviation from the brief's verbatim code: `stage_split`'s `print(folds.group_by("fold").len())` raised `UnicodeEncodeError` on the Windows cp1252 console (polars' box-drawing table glyphs aren't encodable there). Fixed by replacing it with a plain ASCII summary line (`print("[split] " + ", ".join(...))`) that reports the same counts — smallest change that keeps the brief's intent (visibility into fold sizes) without depending on `PYTHONIOENCODING`.
 
 ## Pitfalls and gotchas
+- **Address placeholder tokens (R8, T7):** literal "null"/"N/A"/"NA"/"none"/"nil" show up embedded in real addresses (see T4 EDA examples). `normalize_address` drops them after `basic_clean` via `_drop_placeholders`. Gotcha: `basic_clean` turns "N/A" into the two separate tokens "n","a" (slash -> space), and "n" alone is a real address abbreviation (`ADDR_ABBREV["n"] == "north"`), so the filter must match the adjacent pair `("n","a")` specifically, before `map_tokens` runs — matching "n" or "a" individually would wrongly eat "N Main St" and standalone "a" tokens (e.g. "Block A").
 - **TSV reads:** always use `separator="\t"` and `quote_char=None`, with every column read as a string. Names contain quotes and commas.
 - **TSV writes:** use `quote_style="never"`, otherwise empty strings may be written as `""`.
 - **Stale artifacts:** `read_path` falls back to `prev_work_dirs`. Skipping a stage in a new run silently reuses old artifacts, so always run downstream stages in order.

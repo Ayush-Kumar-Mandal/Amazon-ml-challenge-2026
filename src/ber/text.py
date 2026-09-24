@@ -155,3 +155,80 @@ def normalize_name(raw: str, lex: dict) -> dict:
         "is_web": int(is_web),
         "name_key": " ".join(jellyfish.metaphone(t) for t in core[:2]),
     }
+
+
+def _has_digit(t: str) -> bool:
+    return any(c.isdigit() for c in t)
+
+
+# R8 (M0 EDA): literal placeholder tokens seen embedded in real addresses.
+# "N/A" survives basic_clean as the two adjacent tokens "n", "a" (slash -> space).
+_ADDR_PLACEHOLDERS = {"null", "na", "none", "nil"}
+
+
+def _drop_placeholders(toks: list[str]) -> list[str]:
+    out, i = [], 0
+    while i < len(toks):
+        if toks[i:i + 2] == ["n", "a"]:
+            i += 2
+        elif toks[i] in _ADDR_PLACEHOLDERS:
+            i += 1
+        else:
+            out.append(toks[i])
+            i += 1
+    return out
+
+
+def _find_postcode(parts: list[list[str]]) -> tuple[str, set[str]]:
+    """Last 6-digit token, 3+3 digit pair, or 5-digit token that ends its part / precedes digits."""
+    pc, used = "", set()
+    for toks in parts:
+        for i, t in enumerate(toks):
+            nxt = toks[i + 1] if i + 1 < len(toks) else ""
+            if t.isdigit() and len(t) == 6:
+                pc, used = t, {t}
+            elif t.isdigit() and len(t) == 3 and nxt.isdigit() and len(nxt) == 3:
+                pc, used = t + nxt, {t, nxt}
+            elif t.isdigit() and len(t) == 5 and (not nxt or nxt.isdigit()):
+                pc, used = t, {t}
+    return pc, used
+
+
+def _house_and_street(parts: list[list[str]], pc_toks: set[str]) -> tuple[str, str, int]:
+    excluded = STREET_TYPES | NON_STREET_WORDS
+    for pi, toks in enumerate(parts):
+        nums = [t for t in toks if _has_digit(t) and t not in pc_toks]
+        if nums:
+            for part in parts[pi:pi + 2]:
+                words = [t for t in part if t.isalpha() and len(t) > 1 and t not in excluded]
+                if words:
+                    return nums[0], max(words, key=len), pi
+            return nums[0], "", pi
+    return "", "", -1
+
+
+def normalize_address(raw: str, lex: dict) -> dict:
+    parts: list[list[str]] = []
+    for chunk in basic_clean(raw, keep_commas=True).split(","):
+        toks = _drop_placeholders(chunk.split())
+        if len(toks) == 1 and toks[0] in US_STATES:
+            toks = US_STATES[toks[0]].split()
+        toks = map_tokens(toks, ADDR_ABBREV, lex)
+        if toks:
+            parts.append(toks)
+    postcode, pc_toks = _find_postcode(parts)
+    house_no, street_tok, house_part = _house_and_street(parts, pc_toks)
+    nums = sorted({t for p in parts for t in p if _has_digit(t)} - pc_toks)
+    localities = []
+    for i, p in enumerate(parts):
+        words = [t for t in p if not _has_digit(t)]
+        if i != house_part and words:
+            localities.append(" ".join(words))
+    return {
+        "addr_norm": " ".join(t for p in parts for t in p),
+        "postcode": postcode,
+        "house_no": house_no,
+        "street_tok": street_tok,
+        "num_tokens": " ".join(nums),
+        "localities": "|".join(localities),
+    }
