@@ -49,7 +49,7 @@
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
-  - [ ] T3 metrics
+  - [x] T3 metrics
   - [ ] T4 EDA
   - [ ] T5 folds + dev slice
 - M1:
