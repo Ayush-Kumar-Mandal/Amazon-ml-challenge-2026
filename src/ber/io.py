@@ -12,7 +12,7 @@ from ber.config import write_path
 def read_tsv(source: bytes | str | Path) -> pl.DataFrame:
     df = pl.read_csv(
         source, separator="\t", quote_char=None, infer_schema=False,
-        missing_utf8_is_empty_string=True,
+        empty_string_is_null=False,
     )
     return df.with_columns(pl.all().fill_null(""))
 
@@ -29,7 +29,7 @@ def parse_ground_truth(gt_raw: pl.DataFrame, s1: pl.DataFrame, right: pl.DataFra
     pairs = (
         gt_raw.rename({"source1_entity_id": "l_id", "matched_entity_ids": "r_id"})
         .with_columns(pl.col("r_id").str.split(","))
-        .explode("r_id")
+        .explode("r_id", empty_as_null=True)
         .filter(pl.col("r_id") != "")
     )
     joined = pairs.join(
