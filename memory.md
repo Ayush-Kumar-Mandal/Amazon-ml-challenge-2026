@@ -35,6 +35,8 @@
 - **Kaggle paths:** _(confirm in Task 18: `raw_dir`, `df -h` for /kaggle/working and /kaggle/tmp)_
 
 ## Key decisions (and why)
+- 2026-09-25 (T4): **`blocking.same_country` stays `true`.** The M0 EDA measured a cross-country GT match share of exactly 0.0 across all 7,638,365 train pairs, so `base.yaml` was not changed.
+- 2026-09-25 (T4): **`decide.one_owner` stays `true`.** The M0 EDA found 0 right records (S2/S3) with more than one S1 owner in train GT — 0%, well under the 0.1% threshold that would have flipped this to `false` — so `base.yaml` was not changed.
 - 2026-09-25: **Approach:** a staged hybrid.
   - M1 is classic: blocking, then LightGBM, then the decision rule.
   - M2 adds a multilingual-e5-small bi-encoder.
@@ -45,12 +47,12 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M0, T2 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M0, T4 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
   - [x] T3 metrics
-  - [ ] T4 EDA
+  - [x] T4 EDA
   - [ ] T5 folds + dev slice
 - M1:
   - [ ] T6 name text
@@ -82,22 +84,30 @@
 |---|---|---|---|---|---|---|---|---|---|
 
 ## EDA findings (Task 4)
-- Cross-country match share: _(fill in)_ → `blocking.same_country` = _(fill in)_
-- Right records with more than one S1 owner: _(fill in)_ → `decide.one_owner` = _(fill in)_
-- Singleton rate by country; non-ASCII rates; 5- and 6-digit number rates: _(fill in)_
-- Noise examples seen in the sample rows:
-  - Hindi-script names
-  - legal suffix at the front ("Pvt. EFS Print Ventures Ltd.", "LLC Moncada …")
-  - typos ("Tetlecommunication")
-  - website as the name ("wilfordhancock.com")
-  - junk prefixes ("-- Holloway …")
-  - reordered address parts
-  - Kannada state names
-  - missing addresses
+- Ran on the real train ingest (`configs/dev.yaml`), 2026-09-25: s1=2,206,821, right=10,320,219, gt pairs=7,638,365 — no "ids not found" warning.
+- **Cross-country match share: 0.0** (all 7,638,365 GT pairs are within-country) → `blocking.same_country` stays `true` (no change to `base.yaml`).
+- **Right records with more than one S1 owner: 0** (0% of matched right records, well under the 0.1% threshold) → `decide.one_owner` stays `true` (no change to `base.yaml`).
+- 74.0% of right records (S2+S3) match some S1 in train; the rest are pure distractors.
+- Singleton rate (S1 with 0 GT matches): **US 5.58%, India 5.59%** (close to the global 5.6%). Mean matches/S1: US 3.459, India 3.465; p99 = 8 for both.
+- Non-ASCII rates: S1 names/addresses are ~0% non-ASCII in both countries (S1 India addr 0.06%). S2/S3 are much noisier — India business_name non-ASCII 27.9% (S2) / 18.5% (S3); India business_address non-ASCII 23.7% (S2) / 22.5% (S3) (Devanagari/Telugu/Odia script mixed into otherwise-Latin fields). US S2/S3 non-ASCII name ~6.7-6.8%, address ~0.002%.
+- Empty-address rate: 0% for S1 (both countries); S2/S3 empty_addr ~2.9-3.7% across sources/countries. empty_name is 0% everywhere.
+- 5-digit number in address (US ZIP-like): S1 US 10.82%, S2 US 10.13%, S3 US 10.17%; India 5-digit rate is much lower (~0.3-1.1%, mostly PIN-adjacent noise, not systematic). 6-digit number (India PIN-like): **essentially 0% in all India rows** (S1/S2/S3), while US 6-digit rate is ~0.1-1.4% (likely incidental, e.g. phone/account digits) — India PIN codes are not reliably present as a clean 6-digit token in `business_address`.
+- Noise examples seen in the sample rows (seed=0, 40 sampled GT pairs via `scripts/eda_m0.py`):
+  - Devanagari (Hindi) script names/addresses: "बॉम्बे इन्वेस्टमेंट्स प्राइवेट लिमिटेड" for "Bombay Investments Private Limited"; "इनोवेटिव गैलेक्सी प्रोडक्ट्स प्राइवेट लिमिटेड" for "Innovative Galaxy Products Private Limited"
+  - Partial-script substitution: "ఓం Finance Pvt Ltd" for "Om Finance Pvt Ltd" (only the first word transliterated to Telugu)
+  - Regional-script state names embedded in an otherwise-English address: "ఓడ़ిశా"/"ଓଡ଼ିଶା" for "Orissa", "తెలంగాణ" for "Telangana"
+  - Accent-character noise substituted into ASCII names: "Créative" for "Creative", "Stáffing" for "Staffing", "Límited" for "Limited", "Áll" for "All"
+  - Legal suffix moved to the front: "LLC Stout Stáffing" vs "Stout Staffing LLC"; "LLC 5uperior Analytics" vs "Superior Analytics LLC"
+  - Digit/letter typo substitution: "5uperior" for "Superior"; "Ines" for "Inks"; "Clrinic" for "Clinic"
+  - Website used as the business name: "johnsonweber.com", "#dhariniindia", "TEAMSTERSLOCALUNION.COM"
+  - Literal "null"/"N/A" tokens embedded inside address strings: "BENGALURU, null, Karnataka"; "MINDEN DRIVE, NULL, INDIANAPOLIS, IN"; "5 MORNING VIEW CT, N/A"
+  - House/plot numbers masked with "#": "R.NO.##1 SR.NO.207" vs "R.No.1 Sr.No.207"; "###203/A" vs "No. 203/A"
+  - Heavily reordered address token order between the S1 and the matched right record (city/street/state order scrambled, e.g. "Indianapolis, 5842 Minden Drive, IN" vs "MINDEN DRIVE, NULL, INDIANAPOLIS, IN")
 
 ## Stage timings (for planning Kaggle sessions)
 | Stage | dev (local) | train (Kaggle) | test (Kaggle) |
 |---|---|---|---|
+| ingest --split train (local, full train, `configs/dev.yaml`) | 20s | | |
 
 ## Pitfalls and gotchas
 - **TSV reads:** always use `separator="\t"` and `quote_char=None`, with every column read as a string. Names contain quotes and commas.
