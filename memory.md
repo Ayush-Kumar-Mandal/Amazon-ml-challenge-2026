@@ -53,7 +53,7 @@
   - [x] T2 ingest + CLI
   - [x] T3 metrics
   - [x] T4 EDA
-  - [ ] T5 folds + dev slice
+  - [x] T5 folds + dev slice
 - M1:
   - [ ] T6 name text
   - [ ] T7 address
@@ -108,6 +108,13 @@
 | Stage | dev (local) | train (Kaggle) | test (Kaggle) |
 |---|---|---|---|
 | ingest --split train (local, full train, `configs/dev.yaml`) | 20s | | |
+| dev_slice (localities: phoenix, cleveland, tyler, kolkata, bhopal) | 2s | | |
+| split --split dev (s1_random, valid_frac=0.2) | <1s | | |
+
+## Task 5: folds + dev slice (2026-09-25)
+- Dev slice built from `configs/dev.yaml` `dev.localities: [phoenix, cleveland, tyler, kolkata, bhopal]` against the real local train parquet: **s1=60,664, right=278,368, gt=211,276**. This is within the brief's "roughly 10k-60k, drop a locality if >80k" guidance (60,664 is slightly above 60k but well under the 80k drop threshold, so `configs/dev.yaml` was left unchanged).
+- `split --stage split --split dev` (default `s1_random`, `valid_frac=0.2`, `seed=42` from `base.yaml`) produced fold counts: **fit=48,546, valid=12,118** (19.97% valid share).
+- Deviation from the brief's verbatim code: `stage_split`'s `print(folds.group_by("fold").len())` raised `UnicodeEncodeError` on the Windows cp1252 console (polars' box-drawing table glyphs aren't encodable there). Fixed by replacing it with a plain ASCII summary line (`print("[split] " + ", ".join(...))`) that reports the same counts — smallest change that keeps the brief's intent (visibility into fold sizes) without depending on `PYTHONIOENCODING`.
 
 ## Pitfalls and gotchas
 - **TSV reads:** always use `separator="\t"` and `quote_char=None`, with every column read as a string. Names contain quotes and commas.

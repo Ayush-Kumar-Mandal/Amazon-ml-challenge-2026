@@ -9,6 +9,8 @@ from ber.stages import data
 
 STAGES = {
     "ingest": data.stage_ingest,
+    "dev_slice": data.stage_dev_slice,
+    "split": data.stage_split,
 }
 
 
