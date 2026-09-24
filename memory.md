@@ -48,7 +48,7 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M1, T8 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M1, T9 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
@@ -59,7 +59,7 @@
   - [x] T6 name text
   - [x] T7 address
   - [x] T8 lexicon
-  - [ ] T9 normalize stage
+  - [x] T9 normalize stage
   - [ ] T10 keys
   - [ ] T11 TF-IDF
   - [ ] T12 merge/block
@@ -112,6 +112,7 @@
 | dev_slice (localities: phoenix, cleveland, tyler, kolkata, bhopal) | 2s | | |
 | split --split dev (s1_random, valid_frac=0.2) | <1s | | |
 | lexicon --split dev (fit fold, ~170k GT pairs, min_share=0.6, post-fix) | 80s | | |
+| normalize --split dev (s1=60,664 + right=278,368, `n_jobs=6`) | 21s (~16,200 rows/s) | | |
 
 ## Task 5: folds + dev slice (2026-09-25)
 - Dev slice built from `configs/dev.yaml` `dev.localities: [phoenix, cleveland, tyler, kolkata, bhopal]` against the real local train parquet: **s1=60,664, right=278,368, gt=211,276**. This is within the brief's "roughly 10k-60k, drop a locality if >80k" guidance (60,664 is slightly above 60k but well under the 80k drop threshold, so `configs/dev.yaml` was left unchanged).
@@ -130,6 +131,12 @@
   - addr: `blvd -> boulevard`, `karnatak -> karnataka` (the regression-test case, genuinely mined from real data too), `mh -> maharashtra`
 - **Bad entries remaining post-fix:** only 6 (down from an estimated 60+ before the fix), all in `name`, all short-token Jaro-Winkler mis-alignments of a genuinely non-Latin source token (not the leaked-token bug) — an inherent, much smaller residual noise level in the alignment heuristic itself: `man -> maa`, `hai -> high`, `vest -> best`, `vig -> big`, `arihant -> private`, `vrait -> private`. `addr` has zero remaining bad entries out of 65 (all standard abbreviations, US/Indian state abbreviations, or genuine city-name typo fixes, e.g. `ceveland/cleeland/cleveand/... -> cleveland`, `phenix/phoeix/... -> phoenix`).
 
+## Task 9: normalize stage (2026-09-25)
+- `normalize --split dev` on the real dev slice (`configs/dev.yaml`, `normalize.n_jobs: 6`): s1=60,664 rows, right=278,368 rows, both written in **21s total (~16,200 rows/s)** using a spawn-context `multiprocessing.Pool`. Spawn-context Pool worked without issue on Windows/py3.10 — no fallback needed, matching the brief's expectation.
+- Deviation from the brief's verbatim code: `pl.concat([df, norm], how="horizontal")` raises `DeprecationWarning` under the installed polars 1.44.2 (the plain `"horizontal"` default is being tightened to require equal heights; `"horizontal_extend"` is the direct replacement that keeps the old behavior). Fixed by using `how="horizontal_extend"` in `normalize_frame` — smallest change, same concat semantics, no other code affected.
+- Eyeballed 15 sampled `right_norm.parquet` rows (seed=1, phoenix/kolkata-heavy dev localities): `name_core`/`legal_form` splitting looks correct even when legal terms sit mid-string ("Dynamic Limited Private Marketing" -> core `dynamic marketing`, legal `ltd pvt`; "Om Ltd Center" -> core `om center`, legal `ltd`). No systematic parsing failures found beyond the already-documented (T4/T7) postcode sparsity: across all of `right_norm.parquet`, only **2.35%** of rows have a non-empty `postcode` (s1: 0.90%), while `house_no` is populated for **92.3%** of right rows — consistent with the M0 EDA finding that clean 5-digit US ZIPs and 6-digit India PINs are rare in `business_address`, not a normalize bug.
+- `name_key` (2-token metaphone) and `street_tok` fields were not separately audited beyond the unit test; they follow directly from `text.py` (Tasks 6-7), which already has its own test coverage.
+
 ## Pitfalls and gotchas
 - **Windows console encoding (R10, T8):** the cp1252 Windows console crashes (`UnicodeEncodeError`) when a stage prints polars tables or non-Latin text (e.g. `lexicon.json` entries with Devanagari-derived tokens, or a wide polars `group_by` table). Fixed once, centrally, at the top of `main()` in `pipeline.py`: reconfigure `sys.stdout`/`sys.stderr` to `encoding="utf-8", errors="replace"` when the stream supports `.reconfigure`. This supersedes the narrower per-stage `print` workaround from T5 (`stage_split`'s ASCII-only summary line) — that workaround is now redundant but harmless, so it was left as-is.
 - **Address placeholder tokens (R8, T7):** literal "null"/"N/A"/"NA"/"none"/"nil" show up embedded in real addresses (see T4 EDA examples). `normalize_address` drops them after `basic_clean` via `_drop_placeholders`. Gotcha: `basic_clean` turns "N/A" into the two separate tokens "n","a" (slash -> space), and "n" alone is a real address abbreviation (`ADDR_ABBREV["n"] == "north"`), so the filter must match the adjacent pair `("n","a")` specifically, before `map_tokens` runs — matching "n" or "a" individually would wrongly eat "N Main St" and standalone "a" tokens (e.g. "Block A").
@@ -142,5 +149,5 @@
 - **Disk:** the local C: drive has little free space. Keep only the dev slice and the train parquet locally.
 
 ## Next steps
-1. Start Task 9 (normalize stage) from `plan.md`.
+1. Start Task 10 (keys) from `plan.md`.
 

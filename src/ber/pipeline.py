@@ -13,6 +13,7 @@ STAGES = {
     "dev_slice": data.stage_dev_slice,
     "split": data.stage_split,
     "lexicon": data.stage_lexicon,
+    "normalize": data.stage_normalize,
 }
 
 

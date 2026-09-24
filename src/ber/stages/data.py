@@ -5,9 +5,10 @@ import json
 
 import polars as pl
 
-from ber.config import write_path
+from ber.config import LEXICON_SPLIT, read_path, write_path
 from ber.io import ingest
 from ber.lexicon import mine_lexicon
+from ber.normalize import normalize_frame
 from ber.split import make_dev_slice, make_folds
 from ber.stages.common import load, save
 
@@ -51,3 +52,15 @@ def stage_lexicon(cfg: dict, split: str) -> None:
     write_path(cfg, split, "lexicon.json").write_text(
         json.dumps(lex, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
     print(f"[lexicon] name={len(lex['name'])} addr={len(lex['addr'])} entries")
+
+
+def stage_normalize(cfg: dict, split: str) -> None:
+    lex = json.loads(read_path(cfg, LEXICON_SPLIT[split], "lexicon.json").read_text(encoding="utf-8"))
+    nc = cfg["normalize"]
+    for side in ("s1", "right"):
+        df = load(cfg, split, f"{side}.parquet")
+        step = nc["slice_rows"]
+        parts = [normalize_frame(df.slice(s, step), lex, nc["n_jobs"]) for s in range(0, df.height, step)]
+        out = pl.concat(parts) if parts else normalize_frame(df, lex, 1)
+        save(out, cfg, split, f"{side}_norm.parquet")
+        print(f"[normalize] {split}/{side}: {out.height:,} rows")
