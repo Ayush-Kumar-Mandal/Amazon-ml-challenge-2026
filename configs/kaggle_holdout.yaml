@@ -1,0 +1,6 @@
+extends: kaggle.yaml
+paths:
+  work_dir: /kaggle/working/work_holdout
+run_name: kaggle_holdout
+validation:
+  scheme: country_holdout

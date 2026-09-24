@@ -25,7 +25,8 @@
 ## Environment
 - **Local:**
   - Windows 11, 15.3 GB RAM, 8 cores, no CUDA GPU, about 9.4 GB free on C: (checked 2026-09-25)
-  - Python 3.14 is the default; the project venv uses **3.10** (`py -3.10 -m venv .venv`)
+  - Python 3.14 is the default; the project venv uses **3.10** (`py -3.10 -m venv .venv`, confirmed Python 3.10.11)
+  - 2026-09-25 (T1): `pip install -e ".[dev,ann]"` succeeded with no errors, including `sparse_dot_topn` (1.2.0) and `faiss-cpu` (1.15.1), both of which have prebuilt Windows/cp310 wheels — no install workarounds needed.
 - **Local data:** `C:/Users/AYUSH/ber_data/`, outside OneDrive. Never put data in the synced project folder.
 - **Kaggle:** about 29 GB RAM, 4 CPU cores, T4×2 or P100, 12-hour sessions, 30 GPU-hours per week. Raw data is the private dataset `ber-raw`.
 - **Code sync:** private GitHub repo → Kaggle, using `git clone` with the Kaggle Secret `GITHUB_TOKEN`.
@@ -46,7 +47,7 @@
 ## Status
 - Current milestone: **M0, not started.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
-  - [ ] T1 scaffold/config/validator/GitHub
+  - [x] T1 scaffold/config/validator/GitHub
   - [ ] T2 ingest + CLI
   - [ ] T3 metrics
   - [ ] T4 EDA
