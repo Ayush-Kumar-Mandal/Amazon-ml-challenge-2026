@@ -48,7 +48,7 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M1, T9 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M1, T10 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
@@ -60,7 +60,7 @@
   - [x] T7 address
   - [x] T8 lexicon
   - [x] T9 normalize stage
-  - [ ] T10 keys
+  - [x] T10 keys
   - [ ] T11 TF-IDF
   - [ ] T12 merge/block
   - [ ] T13 cheap cut
