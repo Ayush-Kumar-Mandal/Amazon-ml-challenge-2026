@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 
 from ber.config import apply_override, load_config
@@ -11,6 +12,7 @@ STAGES = {
     "ingest": data.stage_ingest,
     "dev_slice": data.stage_dev_slice,
     "split": data.stage_split,
+    "lexicon": data.stage_lexicon,
 }
 
 
@@ -22,6 +24,9 @@ def run(cfg: dict, stage: str, split: str):
 
 
 def main(argv: list[str] | None = None):
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
     ap.add_argument("--stage", required=True, choices=sorted(STAGES))

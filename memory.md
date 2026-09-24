@@ -35,6 +35,7 @@
 - **Kaggle paths:** _(confirm in Task 18: `raw_dir`, `df -h` for /kaggle/working and /kaggle/tmp)_
 
 ## Key decisions (and why)
+- 2026-09-25 (T8): **`lexicon.min_share` raised from 0.6 to 0.75 in `base.yaml`.** On the real dev fit fold, at 0.6 an estimated 52% of the 257 mined `addr` entries were junk (single-letter transliteration targets, e.g. `podder -> p`, or generic locality-name attractors, e.g. `flat -> kolkata`, `benchmark -> bengal`) — bad entries dominated the addr map. Raising `min_share` to 0.75 cut addr entries to 211 (removed 46, including `united -> limited`, `creative -> private`, `innovative -> private`, `arihant -> private`, `vrait -> private` from `name`, and most single-letter-target addr junk), at the cost of `name` shrinking from 140 to 135 and addr junk only dropping to roughly 48% (the residual cluster's *share* is genuinely high, not just noisy, because the dev slice has only 5 localities so e.g. Kolkata-suburb tokens co-occur with "bengal"/"howrah" almost every time — min_share alone can't distinguish that from a real translation). Kept at 0.75 per the brief's rule since it measurably improves precision without an alternative lever available in this task.
 - 2026-09-25 (T4): **`blocking.same_country` stays `true`.** The M0 EDA measured a cross-country GT match share of exactly 0.0 across all 7,638,365 train pairs, so `base.yaml` was not changed.
 - 2026-09-25 (T4): **`decide.one_owner` stays `true`.** The M0 EDA found 0 right records (S2/S3) with more than one S1 owner in train GT — 0%, well under the 0.1% threshold that would have flipped this to `false` — so `base.yaml` was not changed.
 - 2026-09-25: **Approach:** a staged hybrid.
@@ -47,7 +48,7 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M0, T4 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M1, T8 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
@@ -57,7 +58,7 @@
 - M1:
   - [x] T6 name text
   - [x] T7 address
-  - [ ] T8 lexicon
+  - [x] T8 lexicon
   - [ ] T9 normalize stage
   - [ ] T10 keys
   - [ ] T11 TF-IDF
@@ -110,13 +111,26 @@
 | ingest --split train (local, full train, `configs/dev.yaml`) | 20s | | |
 | dev_slice (localities: phoenix, cleveland, tyler, kolkata, bhopal) | 2s | | |
 | split --split dev (s1_random, valid_frac=0.2) | <1s | | |
+| lexicon --split dev (fit fold, ~170k GT pairs, min_share=0.75) | 66s | | |
 
 ## Task 5: folds + dev slice (2026-09-25)
 - Dev slice built from `configs/dev.yaml` `dev.localities: [phoenix, cleveland, tyler, kolkata, bhopal]` against the real local train parquet: **s1=60,664, right=278,368, gt=211,276**. This is within the brief's "roughly 10k-60k, drop a locality if >80k" guidance (60,664 is slightly above 60k but well under the 80k drop threshold, so `configs/dev.yaml` was left unchanged).
 - `split --stage split --split dev` (default `s1_random`, `valid_frac=0.2`, `seed=42` from `base.yaml`) produced fold counts: **fit=48,546, valid=12,118** (19.97% valid share).
 - Deviation from the brief's verbatim code: `stage_split`'s `print(folds.group_by("fold").len())` raised `UnicodeEncodeError` on the Windows cp1252 console (polars' box-drawing table glyphs aren't encodable there). Fixed by replacing it with a plain ASCII summary line (`print("[split] " + ", ".join(...))`) that reports the same counts — smallest change that keeps the brief's intent (visibility into fold sizes) without depending on `PYTHONIOENCODING`.
 
+## Task 8: lexicon mining (2026-09-25)
+- Ran `lexicon --split dev` on the real dev fit fold (`configs/dev.yaml`): 48,546 fit S1 rows, GT `fit`-fold pairs joined to `s1`/`right` text (~170k matched pairs, well under `sample_pairs: 500000` so no downsampling). Took 66s locally. Final `C:/Users/AYUSH/ber_data/work/dev/lexicon.json` (at the raised `min_share=0.75`): **name=135 entries, addr=211 entries**.
+- **10 good entries** (romanization/typo fixes and standard abbreviations, all semantically correct):
+  - name: `praivet -> private`, `kansaltin -> consulting`, `helathakeyar -> healthcare`, `teknolonji -> technology`, `intaranesanal -> international`, `lajistikas -> logistics`, `sonlyusans -> solutions`
+  - addr: `blvd -> boulevard`, `klkata -> kolkata` (typo fix), `mh -> maharashtra` (state abbreviation)
+- **10 bad entries** (semantically wrong, survived even at `min_share=0.75`):
+  - name: `man -> maa`, `hai -> high`, `vest -> best`, `vig -> big`, `aiti -> it`, `life -> limited`
+  - addr: `flat -> kolkata`, `bagan -> bengal`, `benchmark -> bengal`, `podder -> p`
+- Root cause of the addr noise: the dev slice has only 5 localities (`phoenix, cleveland, tyler, kolkata, bhopal`), so many rare English tokens that appear only in Kolkata-area addresses get Jaro-Winkler-aligned to the ubiquitous nearby word ("bengal", "howrah", "kolkata") even though there's no real translation/abbreviation relationship — their co-occurrence *share* is genuinely high (not just noisy), so raising `min_share` further would start cutting good entries before it clears this cluster. This is expected to shrink on the full train fit fold, which has far more localities and countries diluting any single place-name attractor.
+- Applied the brief's remedy: raised `lexicon.min_share` 0.6 -> 0.75 in `base.yaml` (see Key decisions) since bad entries were an outright majority (52%) of the addr map at 0.6.
+
 ## Pitfalls and gotchas
+- **Windows console encoding (R10, T8):** the cp1252 Windows console crashes (`UnicodeEncodeError`) when a stage prints polars tables or non-Latin text (e.g. `lexicon.json` entries with Devanagari-derived tokens, or a wide polars `group_by` table). Fixed once, centrally, at the top of `main()` in `pipeline.py`: reconfigure `sys.stdout`/`sys.stderr` to `encoding="utf-8", errors="replace"` when the stream supports `.reconfigure`. This supersedes the narrower per-stage `print` workaround from T5 (`stage_split`'s ASCII-only summary line) — that workaround is now redundant but harmless, so it was left as-is.
 - **Address placeholder tokens (R8, T7):** literal "null"/"N/A"/"NA"/"none"/"nil" show up embedded in real addresses (see T4 EDA examples). `normalize_address` drops them after `basic_clean` via `_drop_placeholders`. Gotcha: `basic_clean` turns "N/A" into the two separate tokens "n","a" (slash -> space), and "n" alone is a real address abbreviation (`ADDR_ABBREV["n"] == "north"`), so the filter must match the adjacent pair `("n","a")` specifically, before `map_tokens` runs — matching "n" or "a" individually would wrongly eat "N Main St" and standalone "a" tokens (e.g. "Block A").
 - **TSV reads:** always use `separator="\t"` and `quote_char=None`, with every column read as a string. Names contain quotes and commas.
 - **TSV writes:** use `quote_style="never"`, otherwise empty strings may be written as `""`.
@@ -127,5 +141,5 @@
 - **Disk:** the local C: drive has little free space. Keep only the dev slice and the train parquet locally.
 
 ## Next steps
-1. Start Task 1 (scaffold) from `plan.md`.
+1. Start Task 9 (normalize stage) from `plan.md`.
 
