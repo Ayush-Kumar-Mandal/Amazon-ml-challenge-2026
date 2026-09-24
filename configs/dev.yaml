@@ -1,0 +1,12 @@
+extends: base.yaml
+paths:
+  raw_zip: "C:/Users/AYUSH/OneDrive/Desktop/Amazon mlChallenge 20226/6ab10eb3b23ba_student_resource.zip"
+  work_dir: C:/Users/AYUSH/ber_data/work
+  scratch_dir: C:/Users/AYUSH/ber_data/scratch
+  output_dir: C:/Users/AYUSH/ber_data/output
+run_name: dev
+normalize: {n_jobs: 6}
+blocking: {tfidf: {n_threads: 8, max_df: 0.05}}
+cheap: {max_train_s1: 50000}
+features: {max_train_s1: 100000}
+gbm: {max_es_s1: 20000}

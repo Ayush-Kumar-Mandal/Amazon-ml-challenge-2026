@@ -1,0 +1,9 @@
+extends: base.yaml
+paths:
+  raw_dir: /kaggle/input/ber-raw/student_resource/dataset   # verify with `ls` in Task 17
+  work_dir: /kaggle/working/work
+  prev_work_dirs: []        # set per session, e.g. [/kaggle/input/ber-m1-a/work]
+  scratch_dir: /kaggle/tmp/ber
+  output_dir: /kaggle/working/output
+run_name: kaggle
+experiments_csv: /kaggle/working/experiments.csv
