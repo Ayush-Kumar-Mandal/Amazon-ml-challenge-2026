@@ -55,7 +55,7 @@
   - [x] T4 EDA
   - [x] T5 folds + dev slice
 - M1:
-  - [ ] T6 name text
+  - [x] T6 name text
   - [ ] T7 address
   - [ ] T8 lexicon
   - [ ] T9 normalize stage
