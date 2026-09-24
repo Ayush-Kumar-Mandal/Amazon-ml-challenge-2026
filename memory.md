@@ -33,6 +33,7 @@
   - Repo URL: https://github.com/Ayush-Kumar-Mandal/Amazon-ml-challenge-2026. It is **PUBLIC**: the user chose on 2026-09-25 to keep it public, accepting that other teams can see the code. Because it's public, Kaggle can clone it without a token.
   - Git flow: `main` holds the plan, spec and logbook. Implementation happens on `impl/m0-m1` and is merged after the final review.
 - **Kaggle paths:** _(confirm in Task 18: `raw_dir`, `df -h` for /kaggle/working and /kaggle/tmp)_
+- 2026-09-25 (T11): `sparse_dot_topn` 1.2.0's `sp_matmul_topn(A, B, top_n, threshold=None, sort=False, density=None, n_threads=None, idx_dtype=None)` signature matches the task-11 brief's call exactly (`top_n=`, `threshold=`, `sort=`, `n_threads=` all present) — no adaptation needed, ran and passed locally rather than skipping.
 
 ## Key decisions (and why)
 - 2026-09-25 (T8 fix round 1): **`lexicon.min_share` reverted from 0.75 back to 0.6 in `base.yaml`, after fixing `mine_lexicon`'s real bug.** Root cause of the T8 addr noise wasn't `min_share` at all: `detect_script` was called on the *whole* raw string, so a single stray non-Latin character (e.g. one Kannada word in an otherwise-English address) classified the entire string as non-Latin, dumping its plain-English tokens ("east", "chennai", ...) into the transliteration source pool, where they got Jaro-Winkler-aligned to whatever Latin word happened to be nearby (`east -> west`, `chennai -> phoenix`, 23 tokens -> `bengal`, single-letter targets like `podder -> p`). Fixed in `src/ber/lexicon.py`: (1) per-token script classification — the transliteration source pool is now built only from raw tokens (split on whitespace/punctuation, preserving combining marks so Indic scripts don't fragment) that are themselves non-Latin, with the abbreviation branch left untouched; (2) `_align` now requires `len(a) >= 3` and `len(best) >= 3`, killing the single-letter-target artifacts outright. Re-mining the dev fit fold at the old `min_share=0.6` post-fix gave **addr=65 entries with zero remaining generic-attractor/single-letter junk** (down from 257, ~52% junk) and **name=134** (down from 140, having also dropped several leaked-Latin-token artifacts: `creative -> private`, `innovative -> private`, `united -> limited`, `life -> limited`, `ma -> maa`, `aiti -> it`). Re-tested at 0.75: it only removed 2 more (still-)bad `name` entries (`arihant`, `vrait`) while also removing 2 good `addr` entries (`in -> indiana`, `ks -> kansas`) — no net benefit once the actual bug is fixed — so `min_share` went back to the brief's original default, 0.6.
@@ -48,7 +49,7 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M1, T10 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M1, T11 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
@@ -61,7 +62,7 @@
   - [x] T8 lexicon
   - [x] T9 normalize stage
   - [x] T10 keys
-  - [ ] T11 TF-IDF
+  - [x] T11 TF-IDF
   - [ ] T12 merge/block
   - [ ] T13 cheap cut
   - [ ] T14 full features
