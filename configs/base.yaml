@@ -19,7 +19,7 @@ lexicon:
   sample_pairs: 500000
   min_count: 5
   abbrev_min_count: 20
-  min_share: 0.75
+  min_share: 0.6
 normalize:
   n_jobs: 4
   slice_rows: 1000000
