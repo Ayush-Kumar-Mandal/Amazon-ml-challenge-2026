@@ -6,7 +6,7 @@ import sys
 import time
 
 from ber.config import apply_override, load_config
-from ber.stages import data
+from ber.stages import candidates, data
 
 STAGES = {
     "ingest": data.stage_ingest,
@@ -14,6 +14,7 @@ STAGES = {
     "split": data.stage_split,
     "lexicon": data.stage_lexicon,
     "normalize": data.stage_normalize,
+    "block": candidates.stage_block,
 }
 
 

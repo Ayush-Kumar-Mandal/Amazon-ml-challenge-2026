@@ -49,7 +49,7 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M1, T11 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M1, T12 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
@@ -63,7 +63,7 @@
   - [x] T9 normalize stage
   - [x] T10 keys
   - [x] T11 TF-IDF
-  - [ ] T12 merge/block
+  - [x] T12 merge/block
   - [ ] T13 cheap cut
   - [ ] T14 full features
   - [ ] T15 decide
@@ -84,6 +84,7 @@
 ## Results
 | Date | Run | Scheme | recall_all | recall_final | cands/S1 | F0.5 (valid) | F0.5 India (holdout) | Public LB | Notes |
 |---|---|---|---|---|---|---|---|---|---|
+| 2026-09-25 | block --split dev (`configs/dev.yaml`, s1_random valid fold) | s1_random | 0.9871 | | 98.4 | | | | recall by source: from_keys 0.8179, tfidf_name 0.8516, tfidf_name_addr 0.9768 (union 0.9871 clears the 0.97 gate; no `--set` adjustment needed) |
 
 ## EDA findings (Task 4)
 - Ran on the real train ingest (`configs/dev.yaml`), 2026-09-25: s1=2,206,821, right=10,320,219, gt pairs=7,638,365 — no "ids not found" warning.
@@ -114,6 +115,7 @@
 | split --split dev (s1_random, valid_frac=0.2) | <1s | | |
 | lexicon --split dev (fit fold, ~170k GT pairs, min_share=0.6, post-fix) | 80s | | |
 | normalize --split dev (s1=60,664 + right=278,368, `n_jobs=6`) | 21s (~16,200 rows/s) | | |
+| block --split dev (keys + tfidf_name + tfidf_name_addr, `n_threads=8`, `max_df=0.05`) | 135s total (measured per-view separately: keys 1.8s; tfidf_name 28.2s, India 2,227,445 + US 935,696 pairs; tfidf_name_addr 82.0s, India 2,116,441 + US 717,276 pairs) | | |
 
 ## Task 5: folds + dev slice (2026-09-25)
 - Dev slice built from `configs/dev.yaml` `dev.localities: [phoenix, cleveland, tyler, kolkata, bhopal]` against the real local train parquet: **s1=60,664, right=278,368, gt=211,276**. This is within the brief's "roughly 10k-60k, drop a locality if >80k" guidance (60,664 is slightly above 60k but well under the 80k drop threshold, so `configs/dev.yaml` was left unchanged).
@@ -138,6 +140,13 @@
 - Eyeballed 15 sampled `right_norm.parquet` rows (seed=1, phoenix/kolkata-heavy dev localities): `name_core`/`legal_form` splitting looks correct even when legal terms sit mid-string ("Dynamic Limited Private Marketing" -> core `dynamic marketing`, legal `ltd pvt`; "Om Ltd Center" -> core `om center`, legal `ltd`). No systematic parsing failures found beyond the already-documented (T4/T7) postcode sparsity: across all of `right_norm.parquet`, only **2.35%** of rows have a non-empty `postcode` (s1: 0.90%), while `house_no` is populated for **92.3%** of right rows — consistent with the M0 EDA finding that clean 5-digit US ZIPs and 6-digit India PINs are rare in `business_address`, not a normalize bug.
 - `name_key` (2-token metaphone) and `street_tok` fields were not separately audited beyond the unit test; they follow directly from `text.py` (Tasks 6-7), which already has its own test coverage.
 
+## Task 12: merge candidates + block stage (2026-09-25)
+- `block --split dev` on the real dev slice (`configs/dev.yaml`, `blocking.tfidf.n_threads: 8`, `max_df: 0.05`): s1=60,664, right=278,368. Union of exact-key blocking (`record_keys`/`join_keys`) and two TF-IDF char-trigram views (`name`, `name_addr`) produced **6,000,665 candidate pairs, 98.9 per S1**, written to `cands_all.parquet`. `blocking.embed.enabled` is `false` in `base.yaml`/`dev.yaml`, so `cands_embed.parquet` is not loaded/merged (deferred to T20/T21).
+- **Overall recall on the valid fold: 0.9871** (clears the 0.97 gate on the first attempt — no `--set` adjustment needed). Recall by source (each measured by filtering `cands_all.parquet` to that source's rows before joining to `gt.parquet`, so sources overlap and don't sum to the union): `from_keys` 0.8179, `tfidf_name` 0.8516, `tfidf_name_addr` 0.9768.
+- Candidates per S1 (valid fold): **98.4**.
+- Elapsed time per view (measured by timing `record_keys`+`join_keys` and each `tfidf_candidates` call separately, same dev inputs/config as the real stage run): **keys 1.8s** (2,129,681 pairs before top-k/threshold, i.e. pre-merge); **tfidf_name 28.2s** (India 2,227,445 + US 935,696 pairs); **tfidf_name_addr 82.0s** (India 2,116,441 + US 717,276 pairs). Total `block` stage wall time on dev: **135s** (`[pipeline] block --split dev done in 135s`), consistent with the sum of the three views plus merge/write overhead.
+- No deviation from the brief's verbatim code for `merge.py` or `stage_block`; `pipeline.py` updated exactly as instructed (`from ber.stages import candidates, data`, `"block": candidates.stage_block`).
+
 ## Pitfalls and gotchas
 - **Windows console encoding (R10, T8):** the cp1252 Windows console crashes (`UnicodeEncodeError`) when a stage prints polars tables or non-Latin text (e.g. `lexicon.json` entries with Devanagari-derived tokens, or a wide polars `group_by` table). Fixed once, centrally, at the top of `main()` in `pipeline.py`: reconfigure `sys.stdout`/`sys.stderr` to `encoding="utf-8", errors="replace"` when the stream supports `.reconfigure`. This supersedes the narrower per-stage `print` workaround from T5 (`stage_split`'s ASCII-only summary line) — that workaround is now redundant but harmless, so it was left as-is.
 - **Address placeholder tokens (R8, T7):** literal "null"/"N/A"/"NA"/"none"/"nil" show up embedded in real addresses (see T4 EDA examples). `normalize_address` drops them after `basic_clean` via `_drop_placeholders`. Gotcha: `basic_clean` turns "N/A" into the two separate tokens "n","a" (slash -> space), and "n" alone is a real address abbreviation (`ADDR_ABBREV["n"] == "north"`), so the filter must match the adjacent pair `("n","a")` specifically, before `map_tokens` runs — matching "n" or "a" individually would wrongly eat "N Main St" and standalone "a" tokens (e.g. "Block A").
@@ -150,5 +159,5 @@
 - **Disk:** the local C: drive has little free space. Keep only the dev slice and the train parquet locally.
 
 ## Next steps
-1. Start Task 10 (keys) from `plan.md`.
+1. Start Task 13 (cheap cut) from `plan.md`.
 
