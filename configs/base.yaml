@@ -1,0 +1,93 @@
+paths:
+  raw_zip: ""               # local: path to the student_resource zip
+  raw_dir: ""               # Kaggle: extracted .../student_resource/dataset (wins over raw_zip)
+  work_dir: ./work
+  prev_work_dirs: []        # read-only fallbacks, e.g. a previous Kaggle session's output
+  scratch_dir: ./scratch    # large temporary files (embeddings)
+  output_dir: ./output
+seed: 42
+run_name: default
+experiments_csv: ./experiments.csv
+validation:
+  scheme: s1_random         # s1_random | country_holdout
+  valid_frac: 0.2
+  holdout_train_countries: [US]
+  holdout_eval_countries: [India]
+dev:
+  localities: [phoenix, cleveland, tyler, kolkata, bhopal]
+lexicon:
+  sample_pairs: 500000
+  min_count: 5
+  abbrev_min_count: 20
+  min_share: 0.6
+normalize:
+  n_jobs: 4
+  slice_rows: 1000000
+blocking:
+  same_country: true
+  max_block_pairs: 5000
+  tfidf:
+    views: [name, name_addr]
+    ngram: 3
+    min_df: 2
+    max_df_frac: 0.02
+    max_df_abs: 8000
+    top_k_fwd: 40
+    top_k_rev: 3
+    threshold: 0.3
+    chunk_size: 20000
+    n_threads: 4
+  embed:
+    enabled: false
+    top_k_fwd: 30
+    top_k_rev: 3
+    use_gpu: true
+cheap:
+  keep_top: 25
+  max_train_s1: 300000
+  num_boost_round: 300
+  early_stopping_rounds: 30
+  chunk_rows: 5000000
+  params: {num_leaves: 63, learning_rate: 0.1, min_data_in_leaf: 100}
+features:
+  chunk_rows: 2000000
+  max_train_s1: 800000
+  vectorizer_fit_rows: 2000000
+gbm:
+  num_boost_round: 3000
+  early_stopping_rounds: 100
+  max_es_s1: 100000
+  predict_chunk_rows: 5000000
+  params: {}
+decide:
+  one_owner: true
+  seen_countries: [US, India]
+  unseen_country_scale: 1.0
+evaluate:
+  pred_file: valid_pred.parquet
+submit:
+  pred_file: pred.parquet
+  team_name: team
+biencoder:
+  model_name: intfloat/multilingual-e5-small
+  max_seq_len: 64
+  n_triplets: 2000000
+  epochs: 1
+  batch_size: 256
+  lr: 5.0e-5
+  encode_batch_size: 1024
+cross:
+  model_name: xlm-roberta-base
+  max_len: 96
+  band_lo: 0.1
+  band_hi: 0.9
+  n_train_pairs: 1000000
+  epochs: 1
+  batch_size: 64
+  lr: 2.0e-5
+  score_batch_size: 512
+combiner:
+  n_folds: 5
+  num_boost_round: 600
+  predict_chunk_rows: 5000000
+  params: {learning_rate: 0.05, num_leaves: 63, min_data_in_leaf: 200}
