@@ -49,7 +49,7 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M1, T16 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M1, T17 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
@@ -68,7 +68,7 @@
   - [x] T14 full features
   - [x] T15 decide
   - [x] T16 submit writer
-  - [ ] T17 model stages + e2e test
+  - [x] T17 model stages + e2e test
   - [ ] T18 Kaggle run + first LB
   - [ ] T19 holdout baseline
 - M2:
@@ -87,6 +87,7 @@
 | 2026-09-25 | block --split dev (`configs/dev.yaml`, s1_random valid fold) | s1_random | 0.9871 | | 98.4 | | | | recall by source: from_keys 0.8179, tfidf_name 0.8516, tfidf_name_addr 0.9768 (union 0.9871 clears the 0.97 gate; no `--set` adjustment needed) |
 | 2026-09-25 | cheap_train + cheap_apply --split dev (`configs/dev.yaml`, s1_random valid fold, `cheap.keep_top=25`) | s1_random | 0.9871 | 0.9854 | 24.9 | | | | GBM cheap-cut clears the 0.965 gate; cands_all 6,000,665 -> cands_final 1,511,179 pairs |
 | 2026-09-25 | features --split dev (`configs/dev.yaml`, s1_random, fit+valid folds = full dev S1) | s1_random | | | | | | | 1,511,179 pairs written to `features/part-0000.parquet` (46 feature columns + `y`); y positives=208,159 (13.8%), negatives=1,303,020 |
+| 2026-09-25 | synthetic e2e test (`tests/test_end_to_end.py`, `tests/synth.py`, tiny 120/60-entity organizer-layout data, not the real dev/train run) | s1_random | 1.0 | 1.0 | n/a | 1.0 | n/a | n/a | T17 wiring check only — real dev train/evaluate run is T18 |
 
 ## EDA findings (Task 4)
 - Ran on the real train ingest (`configs/dev.yaml`), 2026-09-25: s1=2,206,821, right=10,320,219, gt pairs=7,638,365 — no "ids not found" warning.
@@ -175,6 +176,12 @@
 - **No deviations from the brief's verbatim code were needed.** Confirmed the vendored `ber/vendor/validate_submission.py`'s CLI (`--matching`/`-m`, `--candidate`/`-c`, `--test-dir`/`-t`, `--check-ids`) matches `run_validator`'s call exactly; it validates header (`source1_entity_id\tmatched_entity_ids` / `...\tcandidate_entity_ids`), one row per required test S1, comma-joined S2-/S3- IDs, no self-matches/dupes, and prints `PASS`/exit 0 or `FAIL`/exit 1 (never touching ground truth or computing score).
 - TDD: RED first (`pytest tests/test_submit.py -v -W error::DeprecationWarning` failed with `ModuleNotFoundError: No module named 'ber.submit'`, as predicted), then GREEN (2 passed, no warnings). Full suite: `pytest -q -W error::DeprecationWarning` -> **65 passed**, no warnings.
 
+## Task 17: model stages (train/evaluate/predict/submit) + synthetic e2e test (2026-09-25)
+- Added `stage_train`, `stage_evaluate`, `stage_predict` to `src/ber/stages/model.py` and `stage_submit` in the new `src/ber/stages/output.py`, verbatim from the brief; registered all four (`train`, `evaluate`, `predict`, `submit`) in `pipeline.STAGES`. Created `tests/synth.py` (organizer-layout synthetic-data generator), `tests/conftest.py` (`small_cfg` fixture) and `tests/test_end_to_end.py`, all verbatim from the brief.
+- **Deviation (real bug found and fixed, not in this task's own new code):** the synthetic e2e test's `evaluate` step raised `ValueError: Found array with 0 sample(s)` inside `crossfit_calibrate` (`src/ber/decide.py`, from T15). Root cause: `crossfit_calibrate` drew its half-split with a bare `np.random.default_rng(seed)`, the exact same seed integer as `make_folds`'s (`src/ber/split.py`, T5) `np.random.default_rng(cfg["seed"]).random(s1.height) < valid_frac`. A fresh NumPy `default_rng(int)` `.random(N)` call is a deterministic function of position only, so both draws share the same float prefix; every `l_idx` selected into the `valid` fold (`float < valid_frac`) is *also* `< 0.5` whenever `valid_frac < 0.5` (true for every configured value: 0.2 in `base.yaml`, 0.3 in the test fixture), which collapses one crossfit half to zero rows deterministically — not a rare seed collision, it reproduces on every run with these configs. This would also have hit the real T18 dev/train run under `s1_random`. Fixed with the smallest change that preserves reproducibility: seed the half-split RNG with `np.random.default_rng([seed, 1])` (a 2-element `SeedSequence`) instead of `default_rng(seed)`, decorrelating it from every other bare-`seed` draw in the pipeline. Verified for the synthetic 34-row valid fold: before the fix, half-split was 850/0 (all one half); after, 450/400. `tests/test_decide.py::test_crossfit_calibration_bounded_and_calibrated` (which uses `seed=0` with unrelated `l_idx` sampling) still passes unchanged.
+- TDD: RED first (`pytest tests/test_end_to_end.py -v` failed with `KeyError: 'train'`, exactly as predicted — the stage wasn't registered yet). After registering the stages, RED again on the `crossfit_calibrate` bug above; after the one-line fix, GREEN: `pytest tests/test_end_to_end.py -v` -> 1 passed in ~5s (well under the 2-minute budget). Full suite `pytest -q` -> **66 passed**; repeated with `pytest -q -W error::DeprecationWarning` -> **66 passed**, no warnings.
+- **e2e metrics on the synthetic data** (tiny 120-train/60-test-entity organizer-layout fixture, `s1_random` scheme, seed 42): `recall_cands_all = 1.0`, `recall_cands_final = 1.0`, `f05 = 1.0`, `submit` returned 0 (validator PASS), `matching_results.tsv` had 60 rows. These are synthetic-data sanity numbers only (the fixture's variants are easy — no real signal about the actual dev/train F0.5, which is T18's job).
+
 ## Pitfalls and gotchas
 - **Windows console encoding (R10, T8):** the cp1252 Windows console crashes (`UnicodeEncodeError`) when a stage prints polars tables or non-Latin text (e.g. `lexicon.json` entries with Devanagari-derived tokens, or a wide polars `group_by` table). Fixed once, centrally, at the top of `main()` in `pipeline.py`: reconfigure `sys.stdout`/`sys.stderr` to `encoding="utf-8", errors="replace"` when the stream supports `.reconfigure`. This supersedes the narrower per-stage `print` workaround from T5 (`stage_split`'s ASCII-only summary line) — that workaround is now redundant but harmless, so it was left as-is.
 - **Address placeholder tokens (R8, T7):** literal "null"/"N/A"/"NA"/"none"/"nil" show up embedded in real addresses (see T4 EDA examples). `normalize_address` drops them after `basic_clean` via `_drop_placeholders`. Gotcha: `basic_clean` turns "N/A" into the two separate tokens "n","a" (slash -> space), and "n" alone is a real address abbreviation (`ADDR_ABBREV["n"] == "north"`), so the filter must match the adjacent pair `("n","a")` specifically, before `map_tokens` runs — matching "n" or "a" individually would wrongly eat "N Main St" and standalone "a" tokens (e.g. "Block A").
@@ -185,7 +192,8 @@
 - **Leakage:** the country_holdout scheme must mine the lexicon and train every model (cheap, GBM, bi-encoder, cross-encoder, combiner) on US `fit` rows only.
 - **Validator:** `validate_submission` must print PASS before any upload.
 - **Disk:** the local C: drive has little free space. Keep only the dev slice and the train parquet locally.
+- **Correlated RNG seeds (T17):** never seed two independent random draws with the same bare integer `cfg["seed"]` when one's selection threshold is a subset condition of the other's (e.g. `valid_frac < 0.5`) — a fresh `np.random.default_rng(int)` is a deterministic function of draw position, so the two draws are not actually independent and can silently produce a degenerate (all-one-side) split. Salt one of them, e.g. `np.random.default_rng([seed, 1])`.
 
 ## Next steps
-1. Start Task 15 (decide) from `plan.md`.
+1. Start Task 18 (Kaggle run + first LB) from `plan.md`.
 

@@ -27,7 +27,11 @@ def calibrate(iso: IsotonicRegression, p: np.ndarray) -> np.ndarray:
 def crossfit_calibrate(pred: pl.DataFrame, seed: int) -> np.ndarray:
     """Calibrate each half of the S1 entities with an isotonic fit on the other half."""
     l_idx = pred["l_idx"].to_numpy().astype(np.int64)
-    half = (np.random.default_rng(seed).random(l_idx.max() + 1) < 0.5)[l_idx]
+    # Salt the seed: a bare `default_rng(seed)` shares its float-stream prefix with
+    # `make_folds`'s own `default_rng(seed)` draw, so with the same seed every "valid"
+    # l_idx (drawn at threshold valid_frac) would land in the same half here whenever
+    # valid_frac < 0.5, collapsing one half to zero rows.
+    half = (np.random.default_rng([seed, 1]).random(l_idx.max() + 1) < 0.5)[l_idx]
     p, y = pred["p"].to_numpy(), pred["y"].to_numpy()
     out = np.empty(len(p), np.float32)
     for h in (True, False):
