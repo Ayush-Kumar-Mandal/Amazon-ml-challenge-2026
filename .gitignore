@@ -12,3 +12,4 @@ output/
 *.joblib
 .DS_Store
 .superpowers/
+experiments.csv
