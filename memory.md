@@ -49,7 +49,7 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M1, T14 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M1, T15 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
@@ -66,7 +66,7 @@
   - [x] T12 merge/block
   - [x] T13 cheap cut
   - [x] T14 full features
-  - [ ] T15 decide
+  - [x] T15 decide
   - [ ] T16 submit writer
   - [ ] T17 model stages + e2e test
   - [ ] T18 Kaggle run + first LB
@@ -164,6 +164,11 @@
 - TDD: RED first (`pytest tests/test_features_full.py -v` failed with `ImportError: cannot import name 'FEATURE_COLUMNS' from 'ber.features'`, exactly as the brief predicted), then GREEN (`pytest tests/test_features_full.py tests/test_features_cheap.py -v -W error::DeprecationWarning` -> 3 passed). Full suite after adding `tests/__init__.py`: `pytest -q -W error::DeprecationWarning` -> **58 passed**, no warnings — the new `tests/__init__.py` package marker did not break collection of any existing test module.
 - Real dev run: `features --split dev` (`configs/dev.yaml`; `features.max_train_s1=100000` from `dev.yaml`, `features.chunk_rows=2,000,000` and `features.vectorizer_fit_rows=2,000,000` from `base.yaml` defaults, neither overridden by `dev.yaml`). Dev's `fit` (48,546) + `valid` (12,118) folds already cover the full 60,664-row dev S1 set (no separate `test` fold at dev scale), so the fold-based `l_idx` filter kept all of `cands_final.parquet`: **1,511,179 pairs unchanged**, written as a single chunk (`features/part-0000.parquet`, since 1,511,179 < `chunk_rows`). Output schema is exactly `["l_idx", "r_idx", *FEATURE_COLUMNS, "y"]` (46 feature columns + `y`), matching the test's schema assertion. `y` label balance: 208,159 positive (13.8%), 1,303,020 negative — consistent with T13's post-cut recall (0.9854) and candidate count. Spot-checked `null_count()`: zero nulls in every feature column except `num_jaccard` (9,139 nulls, exactly the rows where neither side has a numeric address token, per `_jaccard`'s designed `None`-on-empty-union behavior); `sim_other_name`/`sim_other_addr` use float `NaN` (not polars null) for candidates with no "other" rank, matching the test's `np.isnan` assertion.
 - **Elapsed time: 44s** for 1,511,179 pairs (`[pipeline] features --split dev done in 44s`) = **~34,300 rows/second**. This is the number to extrapolate Kaggle `train`/`test` timing from (T18).
+
+## Task 15: decision rules (2026-09-25)
+- Created `src/ber/decide.py` verbatim from the brief: `THRESHOLDS`/`SCALES` constants, `fit_calibrator`/`calibrate` (isotonic regression), `crossfit_calibrate` (half-split cross-fit calibration keyed on `l_idx`), `one_owner` (best-claim-per-`r_idx` dedup), `choose_threshold`, `choose_expected_f05` (plug-in expected-F0.5 top-k rule per S1, comparing against the "predict nothing" score), `tune_threshold` (grid search against `macro_f05_frame` from Task 3), `scale_unseen` (multiplicative probability scaling for S1s in unseen countries), and `select` (threshold vs. expected-F0.5 dispatch). Pure module — no stage registration, no real-data run, per the controller's task scope.
+- **No deviations from the brief's verbatim code were needed**, including the `[0.5, 0.6]` exact float-equality assert in `test_scale_unseen_only_touches_unseen_countries` — it compared exactly with no floating-point noise, so `pytest.approx` was not needed.
+- TDD: RED first (`pytest tests/test_decide.py -v` failed with `ModuleNotFoundError: No module named 'ber.decide'`, as predicted), then GREEN (`pytest tests/test_decide.py -v -W error::DeprecationWarning` -> 5 passed, no warnings). Full suite: `pytest -q -W error::DeprecationWarning` -> **63 passed**, no warnings.
 
 ## Pitfalls and gotchas
 - **Windows console encoding (R10, T8):** the cp1252 Windows console crashes (`UnicodeEncodeError`) when a stage prints polars tables or non-Latin text (e.g. `lexicon.json` entries with Devanagari-derived tokens, or a wide polars `group_by` table). Fixed once, centrally, at the top of `main()` in `pipeline.py`: reconfigure `sys.stdout`/`sys.stderr` to `encoding="utf-8", errors="replace"` when the stream supports `.reconfigure`. This supersedes the narrower per-stage `print` workaround from T5 (`stage_split`'s ASCII-only summary line) — that workaround is now redundant but harmless, so it was left as-is.
