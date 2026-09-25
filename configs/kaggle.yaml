@@ -1,8 +1,13 @@
 extends: base.yaml
 paths:
-  raw_dir: /kaggle/input/ber-raw/student_resource/dataset   # verify with `ls` in Task 17
+  raw_dir: /kaggle/input/datasets/kumarayush090/ber-raw/student_resource/dataset
   work_dir: /kaggle/working/work
-  prev_work_dirs: []        # set per session, e.g. [/kaggle/input/ber-m1-a/work]
+  # This Kaggle account mounts inputs under /kaggle/input/datasets/<owner>/<dataset>/, not the
+  # classic /kaggle/input/<dataset>/ (confirmed via `find /kaggle/input -maxdepth 3` on 2026-09-26).
+  # A session-output dataset (e.g. ber-m1-a) attached as input will follow the same nested pattern —
+  # set per session, e.g. [/kaggle/input/datasets/kumarayush090/ber-m1-a/work]. Verify the real path
+  # with `find /kaggle/input -maxdepth 4` if a later session's mount doesn't match.
+  prev_work_dirs: []
   scratch_dir: /kaggle/tmp/ber
   output_dir: /kaggle/working/output
 run_name: kaggle
