@@ -49,7 +49,7 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M1, T17 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M1, T18 local part done (Kaggle steps 3-7 pending, deferred to a runbook — need the user's Kaggle account).** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
@@ -69,7 +69,7 @@
   - [x] T15 decide
   - [x] T16 submit writer
   - [x] T17 model stages + e2e test
-  - [ ] T18 Kaggle run + first LB
+  - [~] T18 Kaggle run + first LB — local part done (Kaggle steps pending, need user's Kaggle account)
   - [ ] T19 holdout baseline
 - M2:
   - [ ] T20 bi-encoder
@@ -88,6 +88,7 @@
 | 2026-09-25 | cheap_train + cheap_apply --split dev (`configs/dev.yaml`, s1_random valid fold, `cheap.keep_top=25`) | s1_random | 0.9871 | 0.9854 | 24.9 | | | | GBM cheap-cut clears the 0.965 gate; cands_all 6,000,665 -> cands_final 1,511,179 pairs |
 | 2026-09-25 | features --split dev (`configs/dev.yaml`, s1_random, fit+valid folds = full dev S1) | s1_random | | | | | | | 1,511,179 pairs written to `features/part-0000.parquet` (46 feature columns + `y`); y positives=208,159 (13.8%), negatives=1,303,020 |
 | 2026-09-25 | synthetic e2e test (`tests/test_end_to_end.py`, `tests/synth.py`, tiny 120/60-entity organizer-layout data, not the real dev/train run) | s1_random | 1.0 | 1.0 | n/a | 1.0 | n/a | n/a | T17 wiring check only — real dev train/evaluate run is T18 |
+| 2026-09-25 | train + evaluate --split dev (`configs/dev.yaml`, s1_random, real dev slice) | s1_random | 0.9871 | 0.9854 | 24.9 | **0.9667** | n/a (s1_random scheme; per-country breakdown instead of holdout column) | pending (needs Kaggle upload) | `f05_threshold=0.9667` at `threshold=0.675` beat `f05_expected=0.9652`, so `f05=max(...)=0.9667`; per-country F0.5: US 0.9712, India 0.9648; `singleton_acc=0.9323`; `train` stage 170s, `evaluate` stage 3s (both well inside the 10-min budget) |
 
 ## EDA findings (Task 4)
 - Ran on the real train ingest (`configs/dev.yaml`), 2026-09-25: s1=2,206,821, right=10,320,219, gt pairs=7,638,365 — no "ids not found" warning.
@@ -111,17 +112,28 @@
   - Heavily reordered address token order between the S1 and the matched right record (city/street/state order scrambled, e.g. "Indianapolis, 5842 Minden Drive, IN" vs "MINDEN DRIVE, NULL, INDIANAPOLIS, IN")
 
 ## Stage timings (for planning Kaggle sessions)
-| Stage | dev (local) | train (Kaggle) | test (Kaggle) |
+| Stage | dev (local) | train (Kaggle, est.) | test (Kaggle, est.) |
 |---|---|---|---|
-| ingest --split train (local, full train, `configs/dev.yaml`) | 20s | | |
-| dev_slice (localities: phoenix, cleveland, tyler, kolkata, bhopal) | 2s | | |
-| split --split dev (s1_random, valid_frac=0.2) | <1s | | |
-| lexicon --split dev (fit fold, ~170k GT pairs, min_share=0.6, post-fix) | 80s | | |
-| normalize --split dev (s1=60,664 + right=278,368, `n_jobs=6`) | 21s (~16,200 rows/s) | | |
-| block --split dev (keys + tfidf_name + tfidf_name_addr, `n_threads=8`, `max_df=0.05`) | 135s total (measured per-view separately: keys 1.8s; tfidf_name 28.2s, India 2,227,445 + US 935,696 pairs; tfidf_name_addr 82.0s, India 2,116,441 + US 717,276 pairs) | | |
-| cheap_train --split dev (300 rounds requested, no early stop, ~6M cands x fit sample) | 107s | | |
-| cheap_apply --split dev (~6,000,665 cands, `chunk_rows=5,000,000`, top-25 cut) | 44s | | |
-| features --split dev (1,511,179 cands, one chunk since `chunk_rows=2,000,000`, `vectorizer_fit_rows=2,000,000`) | 44s (~34,300 rows/s) | | |
+| ingest --split train (local, full train, `configs/dev.yaml`) | 20s | ~40s | |
+| ingest --split test | not run locally | | ~35-40s (est.) |
+| dev_slice (localities: phoenix, cleveland, tyler, kolkata, bhopal) | 2s | n/a (dev-only stage) | n/a |
+| split --split dev (s1_random, valid_frac=0.2) | <1s | ~20-30s (est.) | n/a (split is train-only) |
+| lexicon --split dev (fit fold, ~170k GT pairs, min_share=0.6, post-fix) | 80s | ~4-6min (est., capped by `sample_pairs=500,000`, not by row count) | n/a (lexicon is train-only) |
+| normalize --split dev (s1=60,664 + right=278,368, `n_jobs=6`) | 21s (~16,200 rows/s) | ~37min combined (train+test, est.) | (see train column) |
+| block --split dev (keys + tfidf_name + tfidf_name_addr, `n_threads=8`, `max_df=0.05`) | 135s total (measured per-view separately: keys 1.8s; tfidf_name 28.2s, India 2,227,445 + US 935,696 pairs; tfidf_name_addr 82.0s, India 2,116,441 + US 717,276 pairs) | ~41min (est.) | ~32min (est.) |
+| cheap_train --split dev (300 rounds requested, no early stop, ~6M cands x fit sample) | 107s | ~22min (est., capped by `cheap.max_train_s1=300,000`) | n/a (cheap_train is train-only) |
+| cheap_apply --split dev (~6,000,665 cands, `chunk_rows=5,000,000`, top-25 cut) | 44s | ~54min (est.) | ~42min (est.) |
+| features --split dev (1,511,179 cands, one chunk since `chunk_rows=2,000,000`, `vectorizer_fit_rows=2,000,000`) | 44s (~34,300 rows/s) | ~72min combined (train+test, est., train capped by `features.max_train_s1=800,000` + full valid fold, test uncapped) | (see train column) |
+| train --split dev (real dev run, `configs/dev.yaml`, `gbm.num_boost_round=3000`, `early_stopping_rounds=100`, `max_es_s1=20000`) | **170s** | ~93min (est.; fit-fold rows are capped indirectly by `features.max_train_s1=800,000` from the upstream `features` stage, es sample capped at `gbm.max_es_s1=100,000`) | n/a (train is train-only) |
+| evaluate --split dev (real dev run) | **3s** | ~3min (est.) | n/a (evaluate is train-only) |
+| predict --split test | not run locally (dev config has no `test` split artifacts) | n/a | ~10-20min (rough estimate, unmeasured locally — no dev baseline exists since `predict`/`submit` only run on `--split test`) |
+| submit --split test | not run locally | n/a | ~5min (rough estimate, unmeasured locally) |
+
+### Kaggle time extrapolation (Task 18, 2026-09-25)
+Method: full train is **s1: 2,206,821 vs dev 60,664 = ~36.4x; right: 10,320,219 vs dev 278,368 = ~37.1x**; full test is **s1: 1,732,544 = ~28.6x dev's s1; right: 9,969,589 = ~35.8x dev's right** (dev's slice is drawn from the train split only, so the test ratios use dev's row counts as the closest available local baseline). Kaggle has 4 cores vs 8 used locally for blocking/cheap/GBM (and 6 for `normalize`), so multi-threaded stages get an extra `/2` (or `/1.5` for `normalize`) on top of the row-count scale-up. Two stages are **capped, not row-scaled**: `lexicon` (`sample_pairs=500,000`, dev only processed ~170k pairs so the real multiplier is `500,000/170,000≈2.9x`, not 36x) and `cheap_train`/`features`(train)/`train`'s fit sample (capped at `cheap.max_train_s1=300,000` / `features.max_train_s1=800,000`, both far below the full 2.2M train S1), which is why those rows are far cheaper than a naive 36x multiply would suggest. `cheap_apply` and `features`(test) are **not** capped (they process every block-stage candidate / every test candidate), so they do scale with the full row multiplier.
+- **Session A total (ingest x2, split, lexicon, normalize x2, block x2, cheap_train, cheap_apply x2): ≈3.9 hours.**
+- **Session B total (features x2, train, evaluate, predict, submit): ≈3.1 hours** (the `predict`/`submit` legs are rough estimates — `--split test` was never exercised locally since `configs/dev.yaml` has no test-split artifacts; both are simpler single-pass operations than `train`/`features`, so they're not expected to change the conclusion below).
+- **No stage is estimated above 10 hours** (the largest are `train` ≈93min and `cheap_apply` ≈54min+42min combined) — well inside both the per-stage 10-hour gate and a single Kaggle CPU session's usual ~9-12h cap, split across two sessions as the brief's driver already does. **No config knob needs to be lowered.** The least certain estimates are `block` and `cheap_apply` (their TF-IDF/scoring cost depends on candidate density, not just row count, so the true Kaggle time could differ by up to ~2x from this estimate) and `predict`/`submit` (no local baseline at all) — worth re-timing from the actual Kaggle run logs (steps 4-5 of the brief) rather than trusting this estimate blindly.
 
 ## Task 5: folds + dev slice (2026-09-25)
 - Dev slice built from `configs/dev.yaml` `dev.localities: [phoenix, cleveland, tyler, kolkata, bhopal]` against the real local train parquet: **s1=60,664, right=278,368, gt=211,276**. This is within the brief's "roughly 10k-60k, drop a locality if >80k" guidance (60,664 is slightly above 60k but well under the 80k drop threshold, so `configs/dev.yaml` was left unchanged).
@@ -182,6 +194,14 @@
 - TDD: RED first (`pytest tests/test_end_to_end.py -v` failed with `KeyError: 'train'`, exactly as predicted — the stage wasn't registered yet). After registering the stages, RED again on the `crossfit_calibrate` bug above; after the one-line fix, GREEN: `pytest tests/test_end_to_end.py -v` -> 1 passed in ~5s (well under the 2-minute budget). Full suite `pytest -q` -> **66 passed**; repeated with `pytest -q -W error::DeprecationWarning` -> **66 passed**, no warnings.
 - **e2e metrics on the synthetic data** (tiny 120-train/60-test-entity organizer-layout fixture, `s1_random` scheme, seed 42): `recall_cands_all = 1.0`, `recall_cands_final = 1.0`, `f05 = 1.0`, `submit` returned 0 (validator PASS), `matching_results.tsv` had 60 rows. These are synthetic-data sanity numbers only (the fixture's variants are easy — no real signal about the actual dev/train F0.5, which is T18's job).
 
+## Task 18: local dev train/evaluate + Kaggle driver (2026-09-25) — local part (controller ruling R3: Steps 1-2 only)
+- **`train --split dev` (`configs/dev.yaml`, real dev slice, `.venv/Scripts/python -m ber.pipeline --config configs/dev.yaml --stage train --split dev`):** ran in **170s**. Fit fold = 48,546 S1 (~1,209,090 feature rows), ES sample = dev's full valid fold (12,118 S1, under the `gbm.max_es_s1=20000` cap so not itself capped), `gbm.num_boost_round=3000`/`early_stopping_rounds=100`/`params={}` (LightGBM defaults) from `base.yaml`. Top-gain features printed by the stage: `rank_r, cheap_score, num_jaccard, rank_l, gap_l, tfidf_name_addr, legal_eq, name_norm_tset, name_word_cos, addr_word_cos, len_ratio, n_claims_r, loc_jaccard, addr_ratio, addr_tset` — `cheap_score` (the T13 cheap-cut GBM's own score) and blocking-rank/gap features dominate alongside direct name/address similarity, which is the expected shape for a two-stage cascade.
+- **`evaluate --split dev`:** ran in **3s**, printed JSON with `f05_expected=0.9652`, `f05_threshold=0.9667` at `threshold=0.675` (threshold rule wins, `f05=max(...)=0.9667`), per-country `f05_India=0.9648`, `f05_US=0.9712`, `singleton_acc=0.9323`, `recall_cands_all=0.9871`/`per_s1_cands_all=98.43` (unchanged from T12, as expected — `evaluate` doesn't re-run blocking), `recall_cands_final=0.9854`/`per_s1_cands_final=24.90` (unchanged from T13). No `--set` overrides were needed; both `train` and `evaluate` succeeded on the first attempt with no errors, so there was nothing to debug for this task.
+- **No deviations from the brief's verbatim pipeline code were needed** for this task — `train`/`evaluate` are pure consumers of the T17 stage implementations, already verified end-to-end by the synthetic test; running them on the real dev slice surfaced no new bugs.
+- **Kaggle time extrapolation:** see `memory.md` → Stage timings → "Kaggle time extrapolation" for the full per-stage table and methodology. Headline: Session A (ingest/split/lexicon/normalize/block/cheap_train/cheap_apply) ≈3.9h, Session B (features/train/evaluate/predict/submit) ≈3.1h, total ≈7h — no stage estimated above 10h, so no `blocking.tfidf.top_k_fwd` / `views` / `features.max_train_s1` knob needed lowering.
+- **Step 2 (`notebooks/kaggle_driver.py`):** written per the brief with controller ruling R4 applied: `GH_REPO = "Ayush-Kumar-Mandal/Amazon-ml-challenge-2026"`, `BRANCH = "impl/m0-m1"`. Since the repo is public, the `GITHUB_TOKEN` Kaggle Secret is now optional: `UserSecretsClient().get_secret(...)` is wrapped in `try/except Exception` (it raises when the secret isn't configured, e.g. `NotFoundError`/generic failure depending on Kaggle's SDK version — caught broadly rather than guessing the exact exception type), falling back to `token = None` and cloning with the plain `https://github.com/<repo>.git` URL instead of the token-embedded one. The remote-URL reset after cloning (`git remote set-url origin https://github.com/<repo>.git`) is kept unconditionally, so a token never persists in the notebook's saved output even on a run where one *was* supplied. `.venv/Scripts/python -m py_compile notebooks/kaggle_driver.py` passes (the `from kaggle_secrets import UserSecretsClient` line only needs to parse, not import, since it never executes locally).
+- **Scope note:** brief Steps 3-7 (Kaggle dataset upload, `GITHUB_TOKEN` secret, running the two Kaggle sessions, leaderboard upload, `requirements.txt`, `docs/Documentation.md`) need the user's own Kaggle account and are explicitly out of scope per controller ruling R3 — deferred to a runbook, not attempted here. `requirements.txt` and `docs/Documentation.md` were **not** created.
+
 ## Pitfalls and gotchas
 - **Windows console encoding (R10, T8):** the cp1252 Windows console crashes (`UnicodeEncodeError`) when a stage prints polars tables or non-Latin text (e.g. `lexicon.json` entries with Devanagari-derived tokens, or a wide polars `group_by` table). Fixed once, centrally, at the top of `main()` in `pipeline.py`: reconfigure `sys.stdout`/`sys.stderr` to `encoding="utf-8", errors="replace"` when the stream supports `.reconfigure`. This supersedes the narrower per-stage `print` workaround from T5 (`stage_split`'s ASCII-only summary line) — that workaround is now redundant but harmless, so it was left as-is.
 - **Address placeholder tokens (R8, T7):** literal "null"/"N/A"/"NA"/"none"/"nil" show up embedded in real addresses (see T4 EDA examples). `normalize_address` drops them after `basic_clean` via `_drop_placeholders`. Gotcha: `basic_clean` turns "N/A" into the two separate tokens "n","a" (slash -> space), and "n" alone is a real address abbreviation (`ADDR_ABBREV["n"] == "north"`), so the filter must match the adjacent pair `("n","a")` specifically, before `map_tokens` runs — matching "n" or "a" individually would wrongly eat "N Main St" and standalone "a" tokens (e.g. "Block A").
@@ -195,5 +215,6 @@
 - **Correlated RNG seeds (T17):** never seed two independent random draws with the same bare integer `cfg["seed"]` when one's selection threshold is a subset condition of the other's (e.g. `valid_frac < 0.5`) — a fresh `np.random.default_rng(int)` is a deterministic function of draw position, so the two draws are not actually independent and can silently produce a degenerate (all-one-side) split. Salt one of them, e.g. `np.random.default_rng([seed, 1])`.
 
 ## Next steps
-1. Start Task 18 (Kaggle run + first LB) from `plan.md`.
+1. Run the Task 18 Kaggle runbook (brief Steps 3-7): upload `ber-raw` dataset, (optionally) add a `GITHUB_TOKEN` secret, run session A (`ber-m1-a`) then session B (`ber-m1-b`) of `notebooks/kaggle_driver.py`, upload `matching_results.tsv` for the first public LB score, freeze `requirements.txt`, and start `docs/Documentation.md`. Needs the user's Kaggle account.
+2. After the Kaggle run, start Task 19 (holdout baseline) from `plan.md`.
 
