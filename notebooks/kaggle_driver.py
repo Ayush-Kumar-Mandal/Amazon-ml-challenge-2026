@@ -14,7 +14,7 @@ import sys
 from kaggle_secrets import UserSecretsClient
 
 GH_REPO = "Ayush-Kumar-Mandal/Amazon-ml-challenge-2026"
-BRANCH = "impl/m0-m1"
+BRANCH = "impl/m0-m1-public"  # clean history, no leaked report blob
 CODE = "/kaggle/working/ber"
 try:
     token = UserSecretsClient().get_secret("GITHUB_TOKEN")
