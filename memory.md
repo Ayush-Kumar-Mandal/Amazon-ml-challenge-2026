@@ -49,7 +49,7 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M1, T15 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M1, T16 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
@@ -67,7 +67,7 @@
   - [x] T13 cheap cut
   - [x] T14 full features
   - [x] T15 decide
-  - [ ] T16 submit writer
+  - [x] T16 submit writer
   - [ ] T17 model stages + e2e test
   - [ ] T18 Kaggle run + first LB
   - [ ] T19 holdout baseline
@@ -169,6 +169,11 @@
 - Created `src/ber/decide.py` verbatim from the brief: `THRESHOLDS`/`SCALES` constants, `fit_calibrator`/`calibrate` (isotonic regression), `crossfit_calibrate` (half-split cross-fit calibration keyed on `l_idx`), `one_owner` (best-claim-per-`r_idx` dedup), `choose_threshold`, `choose_expected_f05` (plug-in expected-F0.5 top-k rule per S1, comparing against the "predict nothing" score), `tune_threshold` (grid search against `macro_f05_frame` from Task 3), `scale_unseen` (multiplicative probability scaling for S1s in unseen countries), and `select` (threshold vs. expected-F0.5 dispatch). Pure module — no stage registration, no real-data run, per the controller's task scope.
 - **No deviations from the brief's verbatim code were needed**, including the `[0.5, 0.6]` exact float-equality assert in `test_scale_unseen_only_touches_unseen_countries` — it compared exactly with no floating-point noise, so `pytest.approx` was not needed.
 - TDD: RED first (`pytest tests/test_decide.py -v` failed with `ModuleNotFoundError: No module named 'ber.decide'`, as predicted), then GREEN (`pytest tests/test_decide.py -v -W error::DeprecationWarning` -> 5 passed, no warnings). Full suite: `pytest -q -W error::DeprecationWarning` -> **63 passed**, no warnings.
+
+## Task 16: submission writer + validator runner (2026-09-25)
+- Created `src/ber/submit.py` verbatim from the brief: `write_id_lists` (joins `pairs` to `s1`/`right` entity IDs, one row per S1, comma-joined sorted unique matches, `""` for no match, `quote_style="never"`), `ensure_test_dir` (extracts `test_source1.tsv` from the raw zip/dir via `open_raw` when no local `raw_dir` is configured), and `run_validator` (always invokes the vendored validator as `sys.executable -m ber.vendor.validate_submission --matching ... --candidate ... --test-dir ...` via `subprocess.run`, never editing the vendored file). Pure module + unit tests, no real-data run, per the controller's task scope.
+- **No deviations from the brief's verbatim code were needed.** Confirmed the vendored `ber/vendor/validate_submission.py`'s CLI (`--matching`/`-m`, `--candidate`/`-c`, `--test-dir`/`-t`, `--check-ids`) matches `run_validator`'s call exactly; it validates header (`source1_entity_id\tmatched_entity_ids` / `...\tcandidate_entity_ids`), one row per required test S1, comma-joined S2-/S3- IDs, no self-matches/dupes, and prints `PASS`/exit 0 or `FAIL`/exit 1 (never touching ground truth or computing score).
+- TDD: RED first (`pytest tests/test_submit.py -v -W error::DeprecationWarning` failed with `ModuleNotFoundError: No module named 'ber.submit'`, as predicted), then GREEN (2 passed, no warnings). Full suite: `pytest -q -W error::DeprecationWarning` -> **65 passed**, no warnings.
 
 ## Pitfalls and gotchas
 - **Windows console encoding (R10, T8):** the cp1252 Windows console crashes (`UnicodeEncodeError`) when a stage prints polars tables or non-Latin text (e.g. `lexicon.json` entries with Devanagari-derived tokens, or a wide polars `group_by` table). Fixed once, centrally, at the top of `main()` in `pipeline.py`: reconfigure `sys.stdout`/`sys.stderr` to `encoding="utf-8", errors="replace"` when the stream supports `.reconfigure`. This supersedes the narrower per-stage `print` workaround from T5 (`stage_split`'s ASCII-only summary line) — that workaround is now redundant but harmless, so it was left as-is.
