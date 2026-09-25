@@ -6,7 +6,7 @@ import sys
 import time
 
 from ber.config import apply_override, load_config
-from ber.stages import candidates, data
+from ber.stages import candidates, data, model
 
 STAGES = {
     "ingest": data.stage_ingest,
@@ -17,6 +17,7 @@ STAGES = {
     "block": candidates.stage_block,
     "cheap_train": candidates.stage_cheap_train,
     "cheap_apply": candidates.stage_cheap_apply,
+    "features": model.stage_features,
 }
 
 

@@ -49,7 +49,7 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M1, T13 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M1, T14 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
@@ -65,7 +65,7 @@
   - [x] T11 TF-IDF
   - [x] T12 merge/block
   - [x] T13 cheap cut
-  - [ ] T14 full features
+  - [x] T14 full features
   - [ ] T15 decide
   - [ ] T16 submit writer
   - [ ] T17 model stages + e2e test
@@ -86,6 +86,7 @@
 |---|---|---|---|---|---|---|---|---|---|
 | 2026-09-25 | block --split dev (`configs/dev.yaml`, s1_random valid fold) | s1_random | 0.9871 | | 98.4 | | | | recall by source: from_keys 0.8179, tfidf_name 0.8516, tfidf_name_addr 0.9768 (union 0.9871 clears the 0.97 gate; no `--set` adjustment needed) |
 | 2026-09-25 | cheap_train + cheap_apply --split dev (`configs/dev.yaml`, s1_random valid fold, `cheap.keep_top=25`) | s1_random | 0.9871 | 0.9854 | 24.9 | | | | GBM cheap-cut clears the 0.965 gate; cands_all 6,000,665 -> cands_final 1,511,179 pairs |
+| 2026-09-25 | features --split dev (`configs/dev.yaml`, s1_random, fit+valid folds = full dev S1) | s1_random | | | | | | | 1,511,179 pairs written to `features/part-0000.parquet` (46 feature columns + `y`); y positives=208,159 (13.8%), negatives=1,303,020 |
 
 ## EDA findings (Task 4)
 - Ran on the real train ingest (`configs/dev.yaml`), 2026-09-25: s1=2,206,821, right=10,320,219, gt pairs=7,638,365 — no "ids not found" warning.
@@ -119,6 +120,7 @@
 | block --split dev (keys + tfidf_name + tfidf_name_addr, `n_threads=8`, `max_df=0.05`) | 135s total (measured per-view separately: keys 1.8s; tfidf_name 28.2s, India 2,227,445 + US 935,696 pairs; tfidf_name_addr 82.0s, India 2,116,441 + US 717,276 pairs) | | |
 | cheap_train --split dev (300 rounds requested, no early stop, ~6M cands x fit sample) | 107s | | |
 | cheap_apply --split dev (~6,000,665 cands, `chunk_rows=5,000,000`, top-25 cut) | 44s | | |
+| features --split dev (1,511,179 cands, one chunk since `chunk_rows=2,000,000`, `vectorizer_fit_rows=2,000,000`) | 44s (~34,300 rows/s) | | |
 
 ## Task 5: folds + dev slice (2026-09-25)
 - Dev slice built from `configs/dev.yaml` `dev.localities: [phoenix, cleveland, tyler, kolkata, bhopal]` against the real local train parquet: **s1=60,664, right=278,368, gt=211,276**. This is within the brief's "roughly 10k-60k, drop a locality if >80k" guidance (60,664 is slightly above 60k but well under the 80k drop threshold, so `configs/dev.yaml` was left unchanged).
@@ -156,6 +158,13 @@
 - Real dev run (`configs/dev.yaml`, s1_random scheme, so `es_fold(cfg) == "valid"`): `cheap_train --split dev` trained on the `fit` fold (48,546 S1, no `max_train_s1` cap needed at dev scale) against a `valid`-fold ES sample (capped at 50,000 S1), ran the full 300 boost rounds without early stopping (`min_data_in_leaf=100, num_leaves=63, learning_rate=0.1` from `base.yaml`'s `cheap.params`), final `valid_0` binary_logloss=0.019496, auc=0.997481, in **107s**. `cheap_apply --split dev` scored and cut all 6,000,665 candidate pairs in one chunk (`chunk_rows=5,000,000` means 2 chunks) to top-25-per-S1 in **44s**: **6,000,665 -> 1,511,179 pairs**.
 - **Recall on the valid fold: all=0.9871 (unchanged from T12's blocking recall, as expected since scoring doesn't drop any pair before the top-k cut), final=0.9854** after the top-25-per-S1 cut — clears the 0.965 gate with room to spare. **Candidates per S1: 24.9** (target ~25, matches `cheap.keep_top=25`).
 
+## Task 14: context + full pair features, `features` stage (2026-09-25)
+- Appended `CONTEXT_COLUMNS`, `NAME_COLUMNS`, `ADDR_COLUMNS`, `FEATURE_COLUMNS`, `context_features`, `fit_vectorizers`, `_rowdot`, `_jaccard`, `full_features` to `src/ber/features.py`, verbatim from the brief. Created `src/ber/stages/model.py` (`load_features`, `stage_features`), registered `"features": model.stage_features` in `pipeline.STAGES` (`from ber.stages import candidates, data, model`). Added `tests/__init__.py` (empty) so `from tests.test_features_cheap import CANDS, LEFT, RIGHT` resolves, and `tests/test_features_full.py` verbatim from the brief.
+- **No deviations from the brief's verbatim code were needed.** All the polars 1.44.2 calls the controller flagged for double-checking worked as written with zero warnings under `-W error::DeprecationWarning`: `list.set_union`/`list.set_intersection` (in `_jaccard`), `str.extract_all` (numeric-token extraction for `name_num_eq`), `pl.min_horizontal`/`pl.max_horizontal` (in `len_ratio`), `Series.gather` (attaching the "other" candidate's name/addr in `full_features`), and `pl.len().over(...)` (in `context_features`). `TfidfVectorizer`/`Levenshtein` imports and the empty-vocabulary fallback (`min_df=2` -> `min_df=1` on tiny fixture data) also worked without changes.
+- TDD: RED first (`pytest tests/test_features_full.py -v` failed with `ImportError: cannot import name 'FEATURE_COLUMNS' from 'ber.features'`, exactly as the brief predicted), then GREEN (`pytest tests/test_features_full.py tests/test_features_cheap.py -v -W error::DeprecationWarning` -> 3 passed). Full suite after adding `tests/__init__.py`: `pytest -q -W error::DeprecationWarning` -> **58 passed**, no warnings — the new `tests/__init__.py` package marker did not break collection of any existing test module.
+- Real dev run: `features --split dev` (`configs/dev.yaml`; `features.max_train_s1=100000` from `dev.yaml`, `features.chunk_rows=2,000,000` and `features.vectorizer_fit_rows=2,000,000` from `base.yaml` defaults, neither overridden by `dev.yaml`). Dev's `fit` (48,546) + `valid` (12,118) folds already cover the full 60,664-row dev S1 set (no separate `test` fold at dev scale), so the fold-based `l_idx` filter kept all of `cands_final.parquet`: **1,511,179 pairs unchanged**, written as a single chunk (`features/part-0000.parquet`, since 1,511,179 < `chunk_rows`). Output schema is exactly `["l_idx", "r_idx", *FEATURE_COLUMNS, "y"]` (46 feature columns + `y`), matching the test's schema assertion. `y` label balance: 208,159 positive (13.8%), 1,303,020 negative — consistent with T13's post-cut recall (0.9854) and candidate count. Spot-checked `null_count()`: zero nulls in every feature column except `num_jaccard` (9,139 nulls, exactly the rows where neither side has a numeric address token, per `_jaccard`'s designed `None`-on-empty-union behavior); `sim_other_name`/`sim_other_addr` use float `NaN` (not polars null) for candidates with no "other" rank, matching the test's `np.isnan` assertion.
+- **Elapsed time: 44s** for 1,511,179 pairs (`[pipeline] features --split dev done in 44s`) = **~34,300 rows/second**. This is the number to extrapolate Kaggle `train`/`test` timing from (T18).
+
 ## Pitfalls and gotchas
 - **Windows console encoding (R10, T8):** the cp1252 Windows console crashes (`UnicodeEncodeError`) when a stage prints polars tables or non-Latin text (e.g. `lexicon.json` entries with Devanagari-derived tokens, or a wide polars `group_by` table). Fixed once, centrally, at the top of `main()` in `pipeline.py`: reconfigure `sys.stdout`/`sys.stderr` to `encoding="utf-8", errors="replace"` when the stream supports `.reconfigure`. This supersedes the narrower per-stage `print` workaround from T5 (`stage_split`'s ASCII-only summary line) — that workaround is now redundant but harmless, so it was left as-is.
 - **Address placeholder tokens (R8, T7):** literal "null"/"N/A"/"NA"/"none"/"nil" show up embedded in real addresses (see T4 EDA examples). `normalize_address` drops them after `basic_clean` via `_drop_placeholders`. Gotcha: `basic_clean` turns "N/A" into the two separate tokens "n","a" (slash -> space), and "n" alone is a real address abbreviation (`ADDR_ABBREV["n"] == "north"`), so the filter must match the adjacent pair `("n","a")` specifically, before `map_tokens` runs — matching "n" or "a" individually would wrongly eat "N Main St" and standalone "a" tokens (e.g. "Block A").
@@ -168,5 +177,5 @@
 - **Disk:** the local C: drive has little free space. Keep only the dev slice and the train parquet locally.
 
 ## Next steps
-1. Start Task 14 (full features) from `plan.md`.
+1. Start Task 15 (decide) from `plan.md`.
 
