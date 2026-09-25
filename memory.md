@@ -49,7 +49,7 @@
 - 2026-09-25: **Compute:** Kaggle; the code sync method is a private GitHub repo (the user's choice). `memory.md` is this project logbook (the user's choice).
 
 ## Status
-- Current milestone: **M1, T12 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
+- Current milestone: **M1, T13 done.** Plan: `plan.md`. Spec: `docs/superpowers/specs/2026-09-25-business-entity-resolution-design.md`.
 - M0:
   - [x] T1 scaffold/config/validator/GitHub
   - [x] T2 ingest + CLI
@@ -64,7 +64,7 @@
   - [x] T10 keys
   - [x] T11 TF-IDF
   - [x] T12 merge/block
-  - [ ] T13 cheap cut
+  - [x] T13 cheap cut
   - [ ] T14 full features
   - [ ] T15 decide
   - [ ] T16 submit writer
@@ -85,6 +85,7 @@
 | Date | Run | Scheme | recall_all | recall_final | cands/S1 | F0.5 (valid) | F0.5 India (holdout) | Public LB | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | 2026-09-25 | block --split dev (`configs/dev.yaml`, s1_random valid fold) | s1_random | 0.9871 | | 98.4 | | | | recall by source: from_keys 0.8179, tfidf_name 0.8516, tfidf_name_addr 0.9768 (union 0.9871 clears the 0.97 gate; no `--set` adjustment needed) |
+| 2026-09-25 | cheap_train + cheap_apply --split dev (`configs/dev.yaml`, s1_random valid fold, `cheap.keep_top=25`) | s1_random | 0.9871 | 0.9854 | 24.9 | | | | GBM cheap-cut clears the 0.965 gate; cands_all 6,000,665 -> cands_final 1,511,179 pairs |
 
 ## EDA findings (Task 4)
 - Ran on the real train ingest (`configs/dev.yaml`), 2026-09-25: s1=2,206,821, right=10,320,219, gt pairs=7,638,365 — no "ids not found" warning.
@@ -116,6 +117,8 @@
 | lexicon --split dev (fit fold, ~170k GT pairs, min_share=0.6, post-fix) | 80s | | |
 | normalize --split dev (s1=60,664 + right=278,368, `n_jobs=6`) | 21s (~16,200 rows/s) | | |
 | block --split dev (keys + tfidf_name + tfidf_name_addr, `n_threads=8`, `max_df=0.05`) | 135s total (measured per-view separately: keys 1.8s; tfidf_name 28.2s, India 2,227,445 + US 935,696 pairs; tfidf_name_addr 82.0s, India 2,116,441 + US 717,276 pairs) | | |
+| cheap_train --split dev (300 rounds requested, no early stop, ~6M cands x fit sample) | 107s | | |
+| cheap_apply --split dev (~6,000,665 cands, `chunk_rows=5,000,000`, top-25 cut) | 44s | | |
 
 ## Task 5: folds + dev slice (2026-09-25)
 - Dev slice built from `configs/dev.yaml` `dev.localities: [phoenix, cleveland, tyler, kolkata, bhopal]` against the real local train parquet: **s1=60,664, right=278,368, gt=211,276**. This is within the brief's "roughly 10k-60k, drop a locality if >80k" guidance (60,664 is slightly above 60k but well under the 80k drop threshold, so `configs/dev.yaml` was left unchanged).
@@ -147,6 +150,12 @@
 - Elapsed time per view (measured by timing `record_keys`+`join_keys` and each `tfidf_candidates` call separately, same dev inputs/config as the real stage run): **keys 1.8s** (2,129,681 pairs before top-k/threshold, i.e. pre-merge); **tfidf_name 28.2s** (India 2,227,445 + US 935,696 pairs); **tfidf_name_addr 82.0s** (India 2,116,441 + US 717,276 pairs). Total `block` stage wall time on dev: **135s** (`[pipeline] block --split dev done in 135s`), consistent with the sum of the three views plus merge/write overhead.
 - No deviation from the brief's verbatim code for `merge.py` or `stage_block`; `pipeline.py` updated exactly as instructed (`from ber.stages import candidates, data`, `"block": candidates.stage_block`).
 
+## Task 13: cheap features, LightGBM helpers, cheap-cut stages (2026-09-25)
+- Implemented `src/ber/features.py` (`CHEAP_COLUMNS`, `attach_sides`, `sim`, `tri`, `cheap_features`), `src/ber/models/gbm.py` (`DEFAULT_PARAMS`, `to_matrix`, `train_binary`, `predict`, `load_booster`), added `common.es_fold`, and `stage_cheap_train`/`stage_cheap_apply` in `stages/candidates.py`, registered in `pipeline.STAGES`. Confirmed the installed `rapidfuzz` (3.14.5) has `process.cpdist`, so the brief's `sim()` needed no rewrite.
+- **Deviation from the brief's verbatim code (real bug, not style):** `train_binary`'s `lgb.early_stopping(early_stopping_rounds, verbose=True)` call, combined with `DEFAULT_PARAMS["metric"] = ["binary_logloss", "auc"]`, uses LightGBM's default `first_metric_only=False`. That makes early stopping trigger as soon as *either* tracked metric stalls, not just the primary one. Reproduced directly: on `tests/test_gbm.py`'s synthetic data, training stopped at iteration 8 (AUC peaked there, even though logloss kept improving), leaving predicted probabilities clustered in [0.46, 0.56] and accuracy at 0.918 (test requires > 0.95). Fixed by adding `first_metric_only=True` to the `lgb.early_stopping(...)` call — smallest change that keeps the brief's intent (log both `binary_logloss` and `auc`, but early-stop on the primary metric, `binary_logloss`, which is first in the list). With the fix, training ran the full 200 rounds in the unit test and reached 99.8% accuracy; `test_gbm.py::test_train_predict_roundtrip` and `test_features_cheap.py::test_cheap_features_values_and_order` both pass with `-W error::DeprecationWarning`. `attach_sides` used `how="horizontal_extend"` per R11 (matches the pattern already used in `normalize_frame`).
+- Real dev run (`configs/dev.yaml`, s1_random scheme, so `es_fold(cfg) == "valid"`): `cheap_train --split dev` trained on the `fit` fold (48,546 S1, no `max_train_s1` cap needed at dev scale) against a `valid`-fold ES sample (capped at 50,000 S1), ran the full 300 boost rounds without early stopping (`min_data_in_leaf=100, num_leaves=63, learning_rate=0.1` from `base.yaml`'s `cheap.params`), final `valid_0` binary_logloss=0.019496, auc=0.997481, in **107s**. `cheap_apply --split dev` scored and cut all 6,000,665 candidate pairs in one chunk (`chunk_rows=5,000,000` means 2 chunks) to top-25-per-S1 in **44s**: **6,000,665 -> 1,511,179 pairs**.
+- **Recall on the valid fold: all=0.9871 (unchanged from T12's blocking recall, as expected since scoring doesn't drop any pair before the top-k cut), final=0.9854** after the top-25-per-S1 cut — clears the 0.965 gate with room to spare. **Candidates per S1: 24.9** (target ~25, matches `cheap.keep_top=25`).
+
 ## Pitfalls and gotchas
 - **Windows console encoding (R10, T8):** the cp1252 Windows console crashes (`UnicodeEncodeError`) when a stage prints polars tables or non-Latin text (e.g. `lexicon.json` entries with Devanagari-derived tokens, or a wide polars `group_by` table). Fixed once, centrally, at the top of `main()` in `pipeline.py`: reconfigure `sys.stdout`/`sys.stderr` to `encoding="utf-8", errors="replace"` when the stream supports `.reconfigure`. This supersedes the narrower per-stage `print` workaround from T5 (`stage_split`'s ASCII-only summary line) — that workaround is now redundant but harmless, so it was left as-is.
 - **Address placeholder tokens (R8, T7):** literal "null"/"N/A"/"NA"/"none"/"nil" show up embedded in real addresses (see T4 EDA examples). `normalize_address` drops them after `basic_clean` via `_drop_placeholders`. Gotcha: `basic_clean` turns "N/A" into the two separate tokens "n","a" (slash -> space), and "n" alone is a real address abbreviation (`ADDR_ABBREV["n"] == "north"`), so the filter must match the adjacent pair `("n","a")` specifically, before `map_tokens` runs — matching "n" or "a" individually would wrongly eat "N Main St" and standalone "a" tokens (e.g. "Block A").
@@ -159,5 +168,5 @@
 - **Disk:** the local C: drive has little free space. Keep only the dev slice and the train parquet locally.
 
 ## Next steps
-1. Start Task 13 (cheap cut) from `plan.md`.
+1. Start Task 14 (full features) from `plan.md`.
 

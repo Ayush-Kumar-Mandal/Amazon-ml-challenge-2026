@@ -15,6 +15,8 @@ STAGES = {
     "lexicon": data.stage_lexicon,
     "normalize": data.stage_normalize,
     "block": candidates.stage_block,
+    "cheap_train": candidates.stage_cheap_train,
+    "cheap_apply": candidates.stage_cheap_apply,
 }
 
 

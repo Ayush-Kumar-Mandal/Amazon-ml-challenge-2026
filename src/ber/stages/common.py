@@ -38,3 +38,7 @@ def label_pairs(cands: pl.DataFrame, gt: pl.DataFrame) -> np.ndarray:
         .sort("_row")
     )
     return lab["y"].fill_null(0).to_numpy()
+
+
+def es_fold(cfg: dict) -> str:
+    return "valid_seen" if cfg["validation"]["scheme"] == "country_holdout" else "valid"
